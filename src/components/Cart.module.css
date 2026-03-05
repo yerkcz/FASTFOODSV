@@ -1,0 +1,278 @@
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+.title {
+    font-size: 1.15rem;
+    font-weight: 700;
+    margin-bottom: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #1a2e23;
+}
+
+.badge {
+    background: #1cc672;
+    color: white;
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+
+/* Order meta info (mesa, cliente, notas) */
+.orderInfo {
+    background: #f5f7f6;
+    border: 1px solid #e0e8e3;
+    border-radius: 10px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.orderInfoRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.orderLabel {
+    font-size: 0.72rem;
+    color: #1cc672;
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 56px;
+}
+
+.orderSelect,
+.orderInput {
+    flex: 1;
+    background: white;
+    border: 1.5px solid #e0e8e3;
+    border-radius: 8px;
+    color: #1a2e23;
+    font-size: 16px !important;
+    padding: 8px 10px;
+    outline: none;
+    transition: border-color 0.2s;
+    width: 100%;
+}
+
+.orderTextarea {
+    flex: 1;
+    background: white;
+    border: 1.5px solid #e0e8e3;
+    border-radius: 8px;
+    color: #1a2e23;
+    font-size: 16px !important;
+    padding: 8px 10px;
+    outline: none;
+    resize: none;
+    font-family: inherit;
+    transition: border-color 0.2s;
+    width: 100%;
+}
+
+.orderSelect:focus,
+.orderInput:focus,
+.orderTextarea:focus {
+    border-color: #1cc672;
+}
+
+.orderSelect option {
+    background: white;
+}
+
+.items {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding-right: 2px;
+}
+
+.emptyMsg {
+    text-align: center;
+    color: #8fa898;
+    padding: 40px 0;
+    font-style: italic;
+    font-size: 0.9rem;
+}
+
+.item {
+    background: #f8faf9;
+    border: 1px solid #e0e8e3;
+    border-radius: 12px;
+    padding: 10px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: slideIn 0.2s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.itemInfo {
+    flex: 1;
+    min-width: 0;
+}
+
+.itemName {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #1a2e23;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.itemPrice {
+    font-size: 0.72rem;
+    color: #8fa898;
+    margin-top: 2px;
+}
+
+.qtyControls {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.qtyBtn {
+    background: #f0f4f1;
+    border: 1.5px solid #d0ddd4;
+    color: #1a2e23;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    font-size: 1.1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+}
+
+.qtyBtn:active {
+    background: #d0ddd4;
+}
+
+.qty {
+    font-weight: 700;
+    font-size: 0.9rem;
+    min-width: 20px;
+    text-align: center;
+    color: #1a2e23;
+}
+
+.itemTotal {
+    font-weight: 700;
+    color: #e8990a;
+    font-size: 0.85rem;
+    white-space: nowrap;
+}
+
+.removeBtn {
+    background: none;
+    border: none;
+    color: rgba(239, 35, 60, 0.6);
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 4px;
+    transition: color 0.2s;
+}
+
+.removeBtn:active {
+    color: #ef233c;
+}
+
+/* Footer */
+.footer {
+    border-top: 1px solid #e0e8e3;
+    padding-top: 14px;
+    margin-top: 14px;
+}
+
+.totalRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.totalLabel {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #5a7a66;
+}
+
+.totalAmount {
+    font-size: 1.4rem;
+    font-weight: 800;
+    color: #1cc672;
+}
+
+.invoiceBtn {
+    width: 100%;
+    padding: 14px;
+    background: linear-gradient(135deg, #1cc672, #16a55e);
+    color: white;
+    border: none;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+}
+
+.invoiceBtn:active {
+    transform: scale(0.98);
+}
+
+.invoiceBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.clearBtn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    color: rgba(239, 35, 60, 0.7);
+    border: 1.5px solid rgba(239, 35, 60, 0.25);
+    border-radius: 10px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all 0.2s;
+}
+
+.clearBtn:active {
+    background: rgba(239, 35, 60, 0.08);
+    color: #ef233c;
+}
+
+/* Mobile toggle — HIDDEN, we use the floating bar instead */
+.mobileToggle {
+    display: none;
+}
