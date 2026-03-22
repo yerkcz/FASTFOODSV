@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
+import Navigation from "@/components/Navigation";
 import "./globals.css";
 
 const inter = Inter({
@@ -31,7 +32,21 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="es">
-      <body className={inter.className}>{children}</body>
+      <head>
+        {/* Roboto for all POS/Staff pages — loaded once globally */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className={inter.className}>
+        <div style={{ paddingBottom: '70px' /* Spacer for mobile navbar */, paddingTop: '0px' }}>
+          {children}
+        </div>
+        <Navigation />
+      </body>
     </html>
   );
 }

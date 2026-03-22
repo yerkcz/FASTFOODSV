@@ -1,5 +1,26 @@
 // Simple in-memory rate limiter
+import { timingSafeEqual } from 'crypto';
+
 const rateLimits = new Map<string, { count: number; resetTime: number }>();
+
+// Define operating hours for the restaurant (Costa Rica timezone)
+const OPERATING_HOURS = {
+    open: 5,  // 5:00 AM (Temporalmente para hacer pruebas)
+    close: 21 // 9:00 PM (21:00)
+};
+
+export function checkOperatingHours(): { isOpen: boolean; currentHourCR: number } {
+    // Get current time in Costa Rica timezone
+    const nowStr = new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" });
+    const now = new Date(nowStr);
+    const originDate = new Date();
+
+    // We use getHours() from the CR localized date string
+    const currentHourCR = now.getHours();
+
+    const isOpen = currentHourCR >= OPERATING_HOURS.open && currentHourCR < OPERATING_HOURS.close;
+    return { isOpen, currentHourCR };
+}
 
 export function checkRateLimit(ip: string, maxRequests: number = 10, windowMs: number = 60000): { allowed: boolean; remaining: number } {
     const now = Date.now();
@@ -17,6 +38,125 @@ export function checkRateLimit(ip: string, maxRequests: number = 10, windowMs: n
         allowed: record.count <= maxRequests,
         remaining: Math.max(0, maxRequests - record.count),
     };
+}
+
+// Timing-safe string comparison to prevent timing attacks
+export function timingSafeCompare(a: string, b: string): boolean {
+    if (typeof a !== 'string' || typeof b !== 'string') {
+        return false;
+    }
+
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+
+    if (bufA.length !== bufB.length) {
+        return false;
+    }
+
+    try {
+        return timingSafeEqual(bufA, bufB);
+    } catch {
+        return bufA.equals(bufB);
+    }
+}
+
+// =====================================================
+// Party PIN Functions
+// =====================================================
+
+const PIN_MIN = 1000;
+const PIN_MAX = 9999;
+
+export function generatePartyPin(): string {
+    const range = PIN_MAX - PIN_MIN + 1;
+    const randomBytes = new Uint32Array(1);
+    crypto.getRandomValues(randomBytes);
+    const pin = PIN_MIN + (randomBytes[0] % range);
+    return pin.toString();
+}
+
+interface GuestTokenPayload {
+    mesa: string;
+    ordenNu: string;
+}
+
+export async function generateGuestToken(pin: string, mesa: string, ordenNu: string): Promise<string> {
+    const secret = process.env.PARTY_PIN_SECRET;
+    if (!secret) {
+        throw new Error('PARTY_PIN_SECRET environment variable is not configured');
+    }
+
+    const payload: GuestTokenPayload = {
+        mesa,
+        ordenNu,
+    };
+
+    const payloadStr = JSON.stringify(payload);
+    const encoder = new TextEncoder();
+    const key = encoder.encode(secret);
+
+    const cryptoKey = await crypto.subtle.importKey(
+        'raw',
+        key,
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+    );
+
+    // To make it deterministic yet bound to the PIN, add the PIN to the signed data
+    const dataToSign = `${pin}:${payloadStr}`;
+    const data = encoder.encode(dataToSign);
+    
+    const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
+    const sigArray = new Uint8Array(signature);
+    return btoa(String.fromCharCode(...sigArray));
+}
+
+export async function validateGuestToken(
+    guestToken: string,
+    pin: string,
+    mesa: string,
+    ordenNu: string
+): Promise<boolean> {
+    const secret = process.env.PARTY_PIN_SECRET;
+    if (!secret) {
+        console.error('PARTY_PIN_SECRET environment variable is not configured');
+        return false;
+    }
+
+    try {
+        const payload: GuestTokenPayload = {
+            mesa,
+            ordenNu,
+        };
+
+        const encoder = new TextEncoder();
+        const key = encoder.encode(secret);
+        const payloadStr = JSON.stringify(payload);
+
+        const cryptoKey = await crypto.subtle.importKey(
+            'raw',
+            key,
+            { name: 'HMAC', hash: 'SHA-256' },
+            false,
+            ['sign']
+        );
+
+        const dataToSign = `${pin}:${payloadStr}`;
+        const data = encoder.encode(dataToSign);
+        
+        const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
+        const sigArray = new Uint8Array(signature);
+        const expectedToken = btoa(String.fromCharCode(...sigArray));
+
+        return timingSafeCompare(guestToken, expectedToken);
+    } catch {
+        return false;
+    }
+}
+
+export function validatePinFormat(pin: string): boolean {
+    return /^\d{4}$/.test(pin);
 }
 
 // Basic string sanitization to prevent XSS and limit length
@@ -42,20 +182,23 @@ export interface OrderPayloadItem {
     name: string;
     price: number;
     quantity: number;
+    notas?: string;
 }
 
 export interface OrderPayload {
     mesa: string;
     cliente?: string;
-    notas?: string;
+    session_token?: string;
+    guest_token?: string;
     items: OrderPayloadItem[];
 }
 
 // Validate the structure of the incoming order payload
-export function validateOrderPayload(body: any): { valid: boolean; error?: string; data?: OrderPayload } {
+export function validateOrderPayload(body: unknown): { valid: boolean; error?: string; data?: OrderPayload } {
     if (!body || typeof body !== "object") return { valid: false, error: "Invalid body format" };
 
-    const { mesa, cliente, notas, items } = body;
+    const record = body as Record<string, unknown>;
+    const { mesa, cliente, session_token, guest_token, items } = record;
 
     if (!mesa || typeof mesa !== "string" || mesa.length > 50) {
         return { valid: false, error: "Invalid or missing 'mesa'" };
@@ -65,15 +208,24 @@ export function validateOrderPayload(body: any): { valid: boolean; error?: strin
         return { valid: false, error: "Invalid 'cliente' format or length" };
     }
 
-    if (notas !== undefined && (typeof notas !== "string" || notas.length > 200)) {
-        return { valid: false, error: "Invalid 'notas' format or length" };
+    if (session_token !== undefined) {
+        if (typeof session_token !== "string" || session_token.length > 36) {
+            return { valid: false, error: "Invalid 'session_token' format or length" };
+        }
+    }
+
+    if (guest_token !== undefined) {
+        if (typeof guest_token !== "string" || guest_token.length > 100) {
+            return { valid: false, error: "Invalid 'guest_token' format or length" };
+        }
     }
 
     if (!Array.isArray(items) || items.length === 0 || items.length > 50) {
         return { valid: false, error: "Invalid 'items' array. Must contain 1-50 items." };
     }
 
-    for (const item of items) {
+    const typedItems = items as Record<string, unknown>[];
+    for (const item of typedItems) {
         if (!item.name || typeof item.name !== "string" || item.name.length > 100) {
             return { valid: false, error: "Invalid item name" };
         }
@@ -88,11 +240,13 @@ export function validateOrderPayload(body: any): { valid: boolean; error?: strin
         data: {
             mesa: sanitize(mesa, 50),
             cliente: cliente ? sanitize(cliente, 100) : "",
-            notas: notas ? sanitize(notas, 200) : "",
+            session_token: session_token || undefined,
+            guest_token: guest_token || undefined,
             items: items.map(item => ({
                 name: sanitize(item.name, 100),
-                price: Number(item.price), // Price will be verified vs DB later, but keep it in payload
-                quantity: Math.floor(item.quantity)
+                price: Number(item.price),
+                quantity: Math.floor(item.quantity),
+                notas: (item as any).notas ? sanitize((item as any).notas, 200) : undefined
             }))
         }
     };

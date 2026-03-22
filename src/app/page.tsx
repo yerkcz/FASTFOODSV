@@ -2,20 +2,72 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import Image from "next/image";
-import { categories, type Product } from "@/data";
+import { type Product } from "@/data";
 import { generateInvoice, type CartItem } from "@/lib/generateInvoice";
 import cardStyles from "@/components/ProductCard.module.css";
 import cartStyles from "@/components/Cart.module.css";
 
 function formatColones(amount: number): string {
-  return "\u20A1" + amount.toLocaleString("es-CR");
+  const rounded = Math.round(amount).toString();
+  return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
-const MESAS = Array.from({ length: 15 }, (_, i) => `Mesa ${i + 1}`);
 const API_KEY = process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY || "";
 
+// Preferred category order for better cognitive flow
+const CATEGORY_ORDER = [
+  "Cocina",
+  "Snacks & Entradas",
+  "Bebidas Frías",
+  "Café & Calientes",
+  "Cócteles & Licores",
+  "Postres",
+  "Extras",
+];
+
+function sortCategories(cats: string[]): string[] {
+  return cats.sort((a, b) => {
+    const idxA = CATEGORY_ORDER.indexOf(a);
+    const idxB = CATEGORY_ORDER.indexOf(b);
+    // Known categories first (by order), unknown at the end alphabetically
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return a.localeCompare(b, "es");
+  });
+}
+
 export default function POSPage() {
+  const [mesaName, setMesaName] = useState("Mesa --");
   const [productsList, setProductsList] = useState<Product[]>([]);
+  const [isWaiterMode, setIsWaiterMode] = useState(false);
+
+  // Initialize table from URL param (e.g. ?mesa=9&nombre=Juan)
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const params = new URLSearchParams(window.location.search);
+      const mesaParam = params.get("mesa");
+      const nombreParam = params.get("nombre");
+      const waiterParam = params.get("waiter_mode");
+      
+      if (waiterParam === "true") {
+        setIsWaiterMode(true);
+      }
+      
+      if (mesaParam) {
+        const isNumeric = /^\d+$/.test(mesaParam.trim());
+        setMesaName(isNumeric ? `Mesa ${mesaParam.trim()}` : mesaParam.trim());
+      } else if (waiterParam === "true") {
+        setMesaName("Mesa Principal"); // Waiter mode fallback
+      }
+      // If no mesa param and not waiter mode, mesaName stays as "Mesa --" → shows QR prompt
+
+      if (nombreParam) {
+        setCliente(nombreParam);
+      }
+    }
+  }, []);
+
   const [isLoading, setIsLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
   const [search, setSearch] = useState("");
@@ -26,15 +78,34 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
 
-  // Order info
-  const [mesa, setMesa] = useState("Mesa 1");
-  const [cliente, setCliente] = useState("");
-  const [notas, setNotas] = useState("");
+  // Table lock states
+  const [isTableOccupied, setIsTableOccupied] = useState<boolean | null>(null); // null means checking
+  const [isCheckingTable, setIsCheckingTable] = useState(true);
+  const [isOwner, setIsOwner] = useState(false);
+  const [isGuest, setIsGuest] = useState(false);
+  const [existingOrdenNu, setExistingOrdenNu] = useState<string | null>(null);
+  const [tablePin, setTablePin] = useState<string | null>(null);
 
-  // Dynamic categories from DB
+  // PIN input states
+  const [pinInput, setPinInput] = useState(['', '', '', '']);
+  const [pinError, setPinError] = useState('');
+  const [isJoiningTable, setIsJoiningTable] = useState(false);
+  const [pinCopied, setPinCopied] = useState(false);
+
+  // Order info — mesa is fixed
+  const [cliente, setCliente] = useState("");
+
+  // Cart quantities map for fast lookup
+  const cartQtyMap = useMemo(() => {
+    const map = new Map<string, number>();
+    cart.forEach((item) => map.set(item.id, item.quantity));
+    return map;
+  }, [cart]);
+
+  // Dynamic categories from DB, sorted
   const dynamicCategories = useMemo(() => {
     const cats = new Set(productsList.map((p) => p.category));
-    return ["Todos", ...Array.from(cats).sort()];
+    return ["Todos", ...sortCategories(Array.from(cats))];
   }, [productsList]);
 
   // Fetch Menu on Load
@@ -46,10 +117,57 @@ export default function POSPage() {
         });
         if (!res.ok) throw new Error("Failed to load menu");
         const data = await res.json();
-        if (data.products) setProductsList(data.products);
+
+        if (data.products) {
+          // Re-map categories intuitively on the frontend
+          const remapped = data.products.map((p: Product) => {
+            const name = p.name.toLowerCase();
+            let newCat = p.category;
+
+            if (
+              name.includes("licor") || name.includes("vino") || name.includes("gin") ||
+              name.includes("imperial") || name.includes("bavaria") || name.includes("aperol") ||
+              name.includes("tequila") || name.includes("ron") || p.category === "Bebidas Alcohólicas"
+            ) {
+              newCat = "Cócteles & Licores";
+            } else if (
+              name.includes("churro") || name.includes("helado") || name.includes("banana split") ||
+              p.category === "Postres"
+            ) {
+              newCat = "Postres";
+            } else if (
+              name.includes("cafe") || name.includes("café") || name.includes("capuchino") ||
+              name.includes("capucchino") || name.includes("chocolate caliente") ||
+              name.includes("aguadulce") || p.category === "Bebidas Calientes"
+            ) {
+              newCat = "Café & Calientes";
+            } else if (
+              name.includes("limonada") || name.includes("coca cola") || name.includes("fanta") ||
+              name.includes("jugo") || name.includes("batido") || name.includes("agua") ||
+              name.includes("frio") || name.includes("frío") || p.category.includes("Frias") || p.category.includes("Frías")
+            ) {
+              newCat = "Bebidas Frías";
+            } else if (
+              name.includes("dedos") || name.includes("bizcocho") || name.includes("arepa") ||
+              name.includes("patacon") || name.includes("patacón") || p.category === "Panadería y Snacks"
+            ) {
+              newCat = "Snacks & Entradas";
+            } else if (
+              name.includes("extra") || name.includes("adicional") || p.category === "Acompañamientos"
+            ) {
+              newCat = "Extras";
+            } else if (p.category === "Platos Principales" || p.category === "Cocina") {
+              newCat = "Cocina";
+            }
+
+            return { ...p, category: newCat };
+          });
+
+          setProductsList(remapped);
+        }
       } catch (error) {
         console.error("Error fetching menu:", error);
-        setErrorMsg("Error cargando el menu. Por favor recarga la pagina.");
+        setErrorMsg("Error cargando el menú. Por favor recarga la página.");
       } finally {
         setIsLoading(false);
       }
@@ -57,16 +175,130 @@ export default function POSPage() {
     fetchMenu();
   }, []);
 
+  // Fetch Table Status
+  useEffect(() => {
+    async function checkTableStatus() {
+        if (mesaName === "Mesa --" || mesaName === "Mesa Principal") {
+          // If we are actively on the initial placeholder and there's a param, we will eventually re-run.
+          // Let's just assume not occupied for dummy table, but don't mark as not checking immediately
+          // actually the other effect will set it to Mesa X soon.
+          setIsCheckingTable(false);
+          setIsTableOccupied(false);
+          return;
+        }
+
+      setIsCheckingTable(true);
+      try {
+        const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
+        const savedGuestToken = localStorage.getItem(`hideaway_guest_token_${mesaName}`);
+        
+        const params = new URLSearchParams({ mesa: mesaName });
+        if (savedToken) params.append('session_token', savedToken);
+        if (savedGuestToken) params.append('guest_token', savedGuestToken);
+
+        const res = await fetch(`/api/table-status?${params.toString()}`, {
+          headers: { "x-api-key": API_KEY },
+        });
+
+        if (!res.ok) {
+          console.error("Failed to fetch table status");
+          setIsTableOccupied(false);
+        } else {
+          const data = await res.json();
+          setIsTableOccupied(data.isOccupied);
+          setIsOwner(data.isOwner || false);
+          setIsGuest(data.isGuest || false);
+          setExistingOrdenNu(data.orden_nu || null);
+          setTablePin(data.table_pin || null);
+
+          // Clean up tokens if table is no longer occupied
+          if (!data.isOccupied) {
+            localStorage.removeItem(`hideaway_token_${mesaName}`);
+            localStorage.removeItem(`hideaway_guest_token_${mesaName}`);
+          }
+          
+          // Frictionless Auto-Join: Save auto-generated guest token if provided
+          if (data.guest_token) {
+            localStorage.setItem(`hideaway_guest_token_${mesaName}`, data.guest_token);
+          }
+
+          // If guest token is no longer valid, remove it
+          if (data.isOccupied && !data.isGuest && savedGuestToken && !data.guest_token) {
+            localStorage.removeItem(`hideaway_guest_token_${mesaName}`);
+          }
+        }
+      } catch (err) {
+        console.error("Table status check error:", err);
+        setIsTableOccupied(false);
+      } finally {
+        setIsCheckingTable(false);
+      }
+    }
+
+    checkTableStatus();
+  }, [mesaName, API_KEY]);
+
+  // Top 15 "Productos Vitales" derived from ANALISIS_DE_DATOS.MD
+  const TOP_ITEMS = useMemo(() => [
+    "Cordon bleu",
+    "New York steak",
+    "Hamburgesa carne",
+    "Chocolate con marshmallows",
+    "Nuggets de pollo",
+    "Pinto típico completo",
+    "Sopa Mexicana",
+    "Filet de pescado",
+    "Casado de pescado",
+    "Chocolate caliente",
+    "Arroz con pollo",
+    "Capuchino Grande",
+    "Hamburguesa pollo",
+    "Casado de pollo",
+    "Dedos de queso tequeño"
+  ], []);
+
+  // Internal/illogical keywords to filter out of the self-order menu
+  const EXCLUDED_KEYWORDS = useMemo(() => [
+    "adicional", "incluida", "incluido", "huésped", "huesped", "empaque",
+    "llevar", "copa agua", "guillermo", "gian"
+  ], []);
+
   // Filter products
   const filtered = useMemo(() => {
     return productsList.filter((p) => {
-      const matchesCategory =
-        activeCategory === "Todos" || p.category === activeCategory;
-      const matchesSearch =
-        search === "" || p.name.toLowerCase().includes(search.toLowerCase());
-      return matchesCategory && matchesSearch;
+      // 1. Filter by user selections UI
+      const matchesCategory = activeCategory === "Todos" || p.category === activeCategory;
+      const matchesSearch = search === "" || p.name.toLowerCase().includes(search.toLowerCase());
+
+      // 2. Filter out illogical/internal items perfectly
+      const nameLower = p.name.toLowerCase();
+      const isLogical = !EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw));
+
+      return matchesCategory && matchesSearch && isLogical;
+
+    }).sort((a, b) => {
+      // Sort 1: Category Order (Cocina before Bebidas)
+      const idxA = CATEGORY_ORDER.indexOf(a.category);
+      const idxB = CATEGORY_ORDER.indexOf(b.category);
+      const orderA = idxA === -1 ? 999 : idxA;
+      const orderB = idxB === -1 ? 999 : idxB;
+      if (orderA !== orderB) return orderA - orderB;
+
+      // Sort 2: Top Products ("Platos más certeros" priority)
+      const isTopA = TOP_ITEMS.indexOf(a.name);
+      const isTopB = TOP_ITEMS.indexOf(b.name);
+
+      // If both are top items, order by their rank in the Top list
+      if (isTopA !== -1 && isTopB !== -1) return isTopA - isTopB;
+      // If only A is top, A comes first
+      if (isTopA !== -1) return -1;
+      // If only B is top, B comes first
+      if (isTopB !== -1) return 1;
+
+      // Sort 3: Alphabetical fallback
+      return a.name.localeCompare(b.name, "es");
     });
-  }, [search, activeCategory, productsList]);
+  }, [search, activeCategory, productsList, TOP_ITEMS, EXCLUDED_KEYWORDS]);
 
   // Cart actions
   const addToCart = useCallback((product: Product) => {
@@ -92,6 +324,18 @@ export default function POSPage() {
     });
   }, []);
 
+  const decrementFromCart = useCallback((productId: string) => {
+    setCart((prev) =>
+      prev
+        .map((item) =>
+          item.id === productId
+            ? { ...item, quantity: item.quantity - 1 }
+            : item
+        )
+        .filter((item) => item.quantity > 0)
+    );
+  }, []);
+
   const updateQuantity = useCallback((id: string, delta: number) => {
     setCart((prev) =>
       prev
@@ -111,9 +355,85 @@ export default function POSPage() {
   const clearCart = useCallback(() => {
     setCart([]);
     setCliente("");
-    setNotas("");
-    setMesa("Mesa 1");
   }, []);
+
+  const updateItemNote = useCallback((id: string, note: string) => {
+    setCart((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, notas: note } : item))
+    );
+  }, []);
+
+  const handlePinChange = (index: number, value: string) => {
+    if (!/^\d*$/.test(value)) return;
+    
+    const newPin = [...pinInput];
+    newPin[index] = value.slice(-1);
+    setPinInput(newPin);
+    setPinError('');
+
+    // Auto-focus next input
+    if (value && index < 3) {
+      const nextInput = document.getElementById(`pin-digit-${index + 1}`);
+      nextInput?.focus();
+    }
+
+    // Auto-submit when 4 digits entered
+    if (newPin.every(d => d !== '') && newPin.join('').length === 4) {
+      setTimeout(() => handlePinSubmit(newPin.join('')), 100);
+    }
+  };
+
+  const handlePinKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !pinInput[index] && index > 0) {
+      const prevInput = document.getElementById(`pin-digit-${index - 1}`);
+      prevInput?.focus();
+    }
+  };
+
+  const handlePinSubmit = async (pin: string) => {
+    setIsJoiningTable(true);
+    setPinError('');
+
+    try {
+      const res = await fetch("/api/table-join", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": API_KEY,
+        },
+        body: JSON.stringify({ mesa: mesaName, pin }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setPinError(data.error || 'PIN incorrecto');
+        setPinInput(['', '', '', '']);
+        document.getElementById('pin-digit-0')?.focus();
+        return;
+      }
+
+      // Success - save guest token
+      localStorage.setItem(`hideaway_guest_token_${mesaName}`, data.guest_token);
+      setIsGuest(true);
+      setExistingOrdenNu(data.orden_nu);
+      setPinInput(['', '', '', '']);
+    } catch (error) {
+      console.error("Error joining table:", error);
+      setPinError('Error al conectarse. Intenta de nuevo.');
+    } finally {
+      setIsJoiningTable(false);
+    }
+  };
+
+  const handleCopyPin = () => {
+    if (tablePin) {
+      navigator.clipboard.writeText(tablePin).then(() => {
+        setPinCopied(true);
+        setTimeout(() => setPinCopied(false), 2000);
+      });
+    }
+  };
 
   const total = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
@@ -131,6 +451,9 @@ export default function POSPage() {
     setErrorMsg("");
 
     try {
+      const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
+      const savedGuestToken = localStorage.getItem(`hideaway_guest_token_${mesaName}`);
+
       const res = await fetch("/api/order", {
         method: "POST",
         headers: {
@@ -138,13 +461,16 @@ export default function POSPage() {
           "x-api-key": API_KEY,
         },
         body: JSON.stringify({
-          mesa,
+          mesa: mesaName,
           cliente,
-          notas,
+          session_token: savedToken || undefined,
+          guest_token: savedGuestToken || undefined,
+          waiter_mode: isWaiterMode,
           items: cart.map((i) => ({
             name: i.name,
             price: i.price,
             quantity: i.quantity,
+            notas: i.notas
           })),
         }),
       });
@@ -154,8 +480,27 @@ export default function POSPage() {
 
       const ordenNu = data.orden_nu;
 
-      // Generate PDF
-      await generateInvoice(cart, total, { mesa, cliente, notas }, ordenNu);
+      // Save the session_token if this is a new order
+      if (data.session_token) {
+        localStorage.setItem(`hideaway_token_${mesaName}`, data.session_token);
+        setIsOwner(true);
+        setExistingOrdenNu(ordenNu);
+      }
+
+      // Save the PIN if this is a new order (for owner to share)
+      if (data.table_pin) {
+        setTablePin(data.table_pin);
+      }
+
+      // Generate PDF only for new orders (not when adding to existing)
+      if (!data.added_to_existing) {
+        await generateInvoice(
+          cart,
+          total,
+          { mesa: mesaName, cliente },
+          ordenNu
+        );
+      }
 
       // Show success
       setShowConfirm(false);
@@ -165,28 +510,155 @@ export default function POSPage() {
 
       // Auto-dismiss success after 5 seconds
       setTimeout(() => setOrderSuccess(null), 5000);
-    } catch (error: any) {
+
+      // Lock the table now that an order was submitted successfully
+      setIsTableOccupied(true);
+    } catch (error: unknown) {
       console.error("Order processing error:", error);
-      setErrorMsg(error.message);
+      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
+      setErrorMsg(errorMessage);
+
+      // If it failed because the table became occupied, trigger the lock screen
+      if (errorMessage.includes("ya tiene una orden") || errorMessage.includes("Ingresa el PIN")) {
+        setTimeout(() => {
+          setIsTableOccupied(true);
+          setShowConfirm(false);
+          setCartOpen(false);
+        }, 4000);
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  // No mesa parameter provided — show QR prompt
+  if (mesaName === "Mesa --") {
+    return (
+      <div className="pos-layout" style={{ justifyContent: "center", alignItems: "center", display: "flex", minHeight: "100dvh" }}>
+        <div style={{ textAlign: "center", padding: "40px 20px", maxWidth: "400px" }}>
+          <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "20px" }}>
+            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="3" height="3" /><line x1="21" y1="14" x2="21" y2="21" /><line x1="14" y1="21" x2="21" y2="21" />
+          </svg>
+          <h2 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#1a2e1a", marginBottom: "12px" }}>¡Bienvenido a Hideaway!</h2>
+          <p style={{ fontSize: "1rem", color: "#5f6368", lineHeight: 1.6 }}>
+            Escanea el código QR en tu mesa para acceder al menú y hacer tu pedido directamente desde tu celular.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isCheckingTable) {
+    return (
+      <div className="pos-layout" style={{ justifyContent: "center", alignItems: "center", display: "flex", minHeight: "100vh" }}>
+        <div className="empty-state">
+          <div className="loading-spinner" />
+          <p className="loading-text">Verificando mesa...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (isTableOccupied && !isOwner && !isGuest && !isWaiterMode) {
+    return (
+      <div className="pos-layout">
+        <div className="pos-main" style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
+          {/* ===== HEADER ===== */}
+          <div className="header" style={{ flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <Image
+                src="/logoHide.png"
+                alt="Hideaway"
+                width={40}
+                height={40}
+                className="header-logo"
+                priority
+              />
+              <div>
+                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>Hideaway</h1>
+                <p style={{ fontSize: "0.68rem", color: "rgba(238,247,240,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
+                  Menú Digital
+                </p>
+              </div>
+            </div>
+            <div style={{ fontSize: "0.72rem", color: "rgba(238,247,240,0.45)", textAlign: "right" }}>
+              {new Date().toLocaleDateString("es-CR", { weekday: "short", day: "numeric", month: "short" })}
+            </div>
+          </div>
+
+          {/* ===== PIN ENTRY SCREEN ===== */}
+          <div className="pin-screen">
+            <svg className="pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+            </svg>
+            <h2 className="pin-title">{mesaName} está ocupada</h2>
+            <p className="pin-subtitle">
+              Ingresa el PIN de 4 dígitos que te dio el anfitrión para sumarte a la orden
+            </p>
+
+            <div className="pin-input-container">
+              {[0, 1, 2, 3].map((i) => (
+                <input
+                  key={i}
+                  id={`pin-digit-${i}`}
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={1}
+                  className={`pin-digit ${pinInput[i] ? 'filled' : ''}`}
+                  value={pinInput[i]}
+                  onChange={(e) => handlePinChange(i, e.target.value)}
+                  onKeyDown={(e) => handlePinKeyDown(i, e)}
+                  disabled={isJoiningTable}
+                  autoFocus={i === 0}
+                />
+              ))}
+            </div>
+
+            {pinError && (
+              <p className="pin-error">{pinError}</p>
+            )}
+
+            <button
+              className="pin-submit-btn"
+              onClick={() => handlePinSubmit(pinInput.join(''))}
+              disabled={isJoiningTable || pinInput.join('').length !== 4}
+            >
+              {isJoiningTable ? 'Conectando...' : 'Unirme a la orden'}
+            </button>
+
+            <div className="pin-hint">
+              <p>¿No tienes el PIN?</p>
+              <button onClick={() => setPinError('Solicita asistencia a tu mesero')}>
+                Llamar a un mesero
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
       <div className="pos-layout">
         <div className="pos-main">
-          {/* Header */}
+          {isWaiterMode && (
+            <div className="waiter-mode-banner">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+              </svg>
+              Modo Mesero Activo
+            </div>
+          )}
+          {/* ===== HEADER ===== */}
           <div className="header">
-            <div
-              style={{ display: "flex", alignItems: "center", gap: "10px" }}
-            >
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <Image
                 src="/logoHide.png"
                 alt="Hideaway"
-                width={38}
-                height={38}
+                width={40}
+                height={40}
                 className="header-logo"
                 priority
               />
@@ -203,18 +675,20 @@ export default function POSPage() {
                 </h1>
                 <p
                   style={{
-                    fontSize: "0.7rem",
-                    color: "rgba(238,247,240,0.5)",
+                    fontSize: "0.68rem",
+                    color: "rgba(238,247,240,0.45)",
+                    letterSpacing: "1px",
+                    textTransform: "uppercase",
                   }}
                 >
-                  Menu Digital
+                  Menú Digital
                 </p>
               </div>
             </div>
             <div
               style={{
                 fontSize: "0.72rem",
-                color: "rgba(238,247,240,0.5)",
+                color: "rgba(238,247,240,0.45)",
                 textAlign: "right",
               }}
             >
@@ -226,21 +700,64 @@ export default function POSPage() {
             </div>
           </div>
 
-          {/* Order Info */}
+          {/* ===== ORDER INFO ===== */}
+          {(isOwner || isGuest) && existingOrdenNu && !isWaiterMode && (
+            <div style={{
+              background: 'linear-gradient(135deg, #1a3d2a 0%, #2d5a3f 100%)',
+              padding: '12px 16px',
+              margin: '12px',
+              borderRadius: '8px',
+              border: '1px solid rgba(37, 211, 102, 0.3)',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '8px'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="2">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                  <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <div>
+                  <div style={{ fontWeight: 600, color: '#25d366', fontSize: '0.9rem' }}>
+                    Orden activa: #{existingOrdenNu}
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'rgba(238,247,240,0.7)' }}>
+                    {isOwner 
+                      ? 'Los artículos que agregues se sumarán a tu cuenta actual'
+                      : 'Te has unido a la orden. Puedes agregar artículos.'}
+                  </div>
+                </div>
+              </div>
+              
+              {isOwner && tablePin && (
+                <div className="pin-display">
+                  <div style={{ flex: 1 }}>
+                    <div className="pin-display-label">PIN para invitados</div>
+                    <div className="pin-display-value">{tablePin}</div>
+                  </div>
+                  <button 
+                    className={`pin-copy-btn ${pinCopied ? 'copied' : ''}`}
+                    onClick={handleCopyPin}
+                  >
+                    {pinCopied ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="order-info-bar">
+            {/* Mesa fija — not selectable */}
             <div className="order-field">
-              <label htmlFor="select-mesa">Mesa</label>
-              <select
-                id="select-mesa"
-                value={mesa}
-                onChange={(e) => setMesa(e.target.value)}
-              >
-                {MESAS.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
+              <label>Mesa</label>
+              <div className="mesa-badge">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 3h18v18H3z" />
+                  <path d="M3 9h18" />
+                  <path d="M9 21V9" />
+                </svg>
+                {mesaName}
+              </div>
             </div>
             <div className="order-field">
               <label htmlFor="input-cliente">Nombre (opcional)</label>
@@ -254,31 +771,26 @@ export default function POSPage() {
                 maxLength={40}
               />
             </div>
-            <div className="order-field">
-              <label htmlFor="input-notas">Notas especiales</label>
-              <textarea
-                id="input-notas"
-                placeholder="Sin cebolla, alergia..."
-                value={notas}
-                onChange={(e) => setNotas(e.target.value)}
-                rows={1}
-                maxLength={150}
-              />
-            </div>
           </div>
 
-          {/* Search */}
-          <input
-            type="text"
-            className="search-input"
-            placeholder="Buscar en el menu..."
-            autoComplete="off"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            id="search-products"
-          />
+          {/* ===== SEARCH ===== */}
+          <div className="search-wrapper">
+            <svg className="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Buscar en el menú..."
+              autoComplete="off"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              id="search-products"
+            />
+          </div>
 
-          {/* Categories — wrapping layout */}
+          {/* ===== CATEGORIES ===== */}
           <div className="categories">
             {dynamicCategories.map((cat) => (
               <button
@@ -292,88 +804,78 @@ export default function POSPage() {
             ))}
           </div>
 
-          {/* Products Grid */}
+          {/* ===== PRODUCTS GRID ===== */}
           <div className="products-grid">
             {isLoading ? (
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                  textAlign: "center",
-                  padding: "60px 0",
-                }}
-              >
-                <div
-                  style={{
-                    width: 32,
-                    height: 32,
-                    border: "3px solid #e0e8e3",
-                    borderTop: "3px solid #1cc672",
-                    borderRadius: "50%",
-                    animation: "spin 0.8s linear infinite",
-                    margin: "0 auto 12px",
-                  }}
-                />
-                <p style={{ fontSize: "0.9rem", color: "#5a7a66" }}>
-                  Cargando menu...
-                </p>
-                <style>{`@keyframes spin { to { transform: rotate(360deg); }}`}</style>
+              <div className="empty-state">
+                <div className="loading-spinner" />
+                <p className="loading-text">Cargando menú...</p>
               </div>
             ) : filtered.length === 0 ? (
-              <div
-                style={{
-                  gridColumn: "1 / -1",
-                  textAlign: "center",
-                  padding: "60px 0",
-                  color: "#8fa898",
-                }}
-              >
-                <p style={{ fontSize: "1rem" }}>
-                  No se encontraron articulos
-                </p>
-                <p style={{ fontSize: "0.8rem", marginTop: "6px" }}>
-                  Intenta cambiar el filtro o la busqueda
-                </p>
+              <div className="empty-state">
+                <p>No se encontraron artículos</p>
+                <p>Intenta cambiar el filtro o la búsqueda</p>
               </div>
             ) : (
-              filtered.map((product) => (
-                <div
-                  key={product.id}
-                  className={cardStyles.card}
-                  onClick={() => addToCart(product)}
-                  id={`product-${product.id}`}
-                >
-                  <span className={cardStyles.category}>
-                    {product.category}
-                  </span>
-                  <span className={cardStyles.name}>{product.name}</span>
-                  <div className={cardStyles.bottom}>
-                    <span className={cardStyles.price}>
-                      {formatColones(product.price)}
+              filtered.map((product) => {
+                const qty = cartQtyMap.get(product.id) || 0;
+                return (
+                  <div
+                    key={product.id}
+                    className={`${cardStyles.card} ${qty > 0 ? cardStyles.cardActive : ""}`}
+                    onClick={() => addToCart(product)}
+                    id={`product-${product.id}`}
+                  >
+                    <span className={cardStyles.category}>
+                      {product.category}
                     </span>
-                    <button
-                      className={cardStyles.addBtn}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        addToCart(product);
-                      }}
-                      aria-label={`Agregar ${product.name}`}
-                    >
-                      +
-                    </button>
+                    <span className={cardStyles.name}>{product.name}</span>
+                    <div className={cardStyles.bottom}>
+                      <span className={cardStyles.price}>
+                        {formatColones(product.price)}
+                      </span>
+                      <div className={cardStyles.cardControls}>
+                        {qty > 0 && (
+                          <>
+                            <button
+                              className={cardStyles.removeBtn}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                decrementFromCart(product.id);
+                              }}
+                              aria-label={`Quitar ${product.name}`}
+                            >
+                              −
+                            </button>
+                            <span className={cardStyles.qtyBadge}>{qty}</span>
+                          </>
+                        )}
+                        <button
+                          className={cardStyles.addBtn}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addToCart(product);
+                          }}
+                          aria-label={`Agregar ${product.name}`}
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         </div>
       </div>
 
-      {/* === FLOATING CART BAR (always visible when items in cart) === */}
+      {/* ===== FLOATING CART BAR ===== */}
       {totalItems > 0 && (
         <div className="floating-cart-bar">
           <div className="floating-cart-info">
             <span className="floating-cart-count">
-              {totalItems} articulo{totalItems > 1 ? "s" : ""} en tu orden
+              {totalItems} artículo{totalItems > 1 ? "s" : ""} en tu orden
             </span>
             <span className="floating-cart-total">{formatColones(total)}</span>
           </div>
@@ -386,7 +888,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* === CART BOTTOM SHEET === */}
+      {/* ===== CART BOTTOM SHEET ===== */}
       {cartOpen && (
         <div
           className="modal-overlay"
@@ -410,52 +912,74 @@ export default function POSPage() {
                     marginLeft: "auto",
                   }}
                 >
-                  {mesa}
+                  {mesaName}
                 </span>
               </div>
 
               <div className={cartStyles.items}>
                 {cart.length === 0 ? (
                   <div className={cartStyles.emptyMsg}>
-                    Agrega articulos del menu
+                    Agrega artículos del menú
                   </div>
                 ) : (
                   cart.map((item) => (
-                    <div key={item.id} className={cartStyles.item}>
-                      <div className={cartStyles.itemInfo}>
-                        <div className={cartStyles.itemName}>
-                          {item.name}
+                    <div key={item.id} style={{ marginBottom: '10px' }}>
+                      <div className={cartStyles.item}>
+                        {/* Row 1: name + unit price */}
+                        <div className={cartStyles.itemInfo}>
+                          <div className={cartStyles.itemName}>{item.name}</div>
+                          <div className={cartStyles.itemPrice}>{formatColones(item.price)} c/u</div>
                         </div>
-                        <div className={cartStyles.itemPrice}>
-                          {formatColones(item.price)} c/u
+                        {/* Row 2: qty controls + total + remove */}
+                        <div className={cartStyles.itemRow2}>
+                          <div className={cartStyles.qtyControls}>
+                            <button
+                              className={cartStyles.qtyBtn}
+                              onClick={() => updateQuantity(item.id, -1)}
+                              aria-label={`Quitar ${item.name}`}
+                            >
+                              −
+                            </button>
+                            <span className={cartStyles.qty}>{item.quantity}</span>
+                            <button
+                              className={cartStyles.qtyBtn}
+                              onClick={() => updateQuantity(item.id, 1)}
+                              aria-label={`Agregar ${item.name}`}
+                            >
+                              +
+                            </button>
+                          </div>
+                          <span className={cartStyles.itemTotal}>
+                            {formatColones(item.price * item.quantity)}
+                          </span>
+                          <button
+                            className={cartStyles.removeBtn}
+                            onClick={() => removeItem(item.id)}
+                            aria-label={`Eliminar ${item.name}`}
+                          >
+                            ✕
+                          </button>
                         </div>
                       </div>
-                      <div className={cartStyles.qtyControls}>
-                        <button
-                          className={cartStyles.qtyBtn}
-                          onClick={() => updateQuantity(item.id, -1)}
-                        >
-                          -
-                        </button>
-                        <span className={cartStyles.qty}>
-                          {item.quantity}
-                        </span>
-                        <button
-                          className={cartStyles.qtyBtn}
-                          onClick={() => updateQuantity(item.id, 1)}
-                        >
-                          +
-                        </button>
+                      {/* Per-item note input */}
+                      <div style={{ padding: '4px 0 0 0' }}>
+                        <input
+                          type="text"
+                          placeholder={`Notas: ej. sin cebolla`}
+                          value={item.notas || ""}
+                          onChange={(e) => updateItemNote(item.id, e.target.value)}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            fontSize: '0.8rem',
+                            border: '1px solid #dce8e0',
+                            borderRadius: '8px',
+                            backgroundColor: '#f7faf8',
+                            color: '#1a2e23',
+                          }}
+                          maxLength={100}
+                        />
                       </div>
-                      <span className={cartStyles.itemTotal}>
-                        {formatColones(item.price * item.quantity)}
-                      </span>
-                      <button
-                        className={cartStyles.removeBtn}
-                        onClick={() => removeItem(item.id)}
-                      >
-                        x
-                      </button>
                     </div>
                   ))
                 )}
@@ -464,19 +988,7 @@ export default function POSPage() {
               {/* Footer */}
               <div className={cartStyles.footer}>
                 {errorMsg && (
-                  <div
-                    style={{
-                      color: "#ef233c",
-                      fontSize: "0.8rem",
-                      marginBottom: "10px",
-                      textAlign: "center",
-                      background: "rgba(239,35,60,0.06)",
-                      padding: "8px",
-                      borderRadius: "8px",
-                    }}
-                  >
-                    {errorMsg}
-                  </div>
+                  <div className="error-inline">{errorMsg}</div>
                 )}
                 <div className={cartStyles.totalRow}>
                   <span className={cartStyles.totalLabel}>Total</span>
@@ -493,7 +1005,7 @@ export default function POSPage() {
                   disabled={cart.length === 0}
                   id="checkout-btn"
                 >
-                  Enviar a Cocina
+                  {isOwner || isGuest ? "Agregar a la Orden" : "Enviar a Cocina"}
                 </button>
                 {cart.length > 0 && (
                   <button
@@ -510,7 +1022,7 @@ export default function POSPage() {
         </div>
       )}
 
-      {/* === CONFIRMATION MODAL === */}
+      {/* ===== CONFIRMATION MODAL ===== */}
       {showConfirm && (
         <div
           className="modal-overlay"
@@ -521,30 +1033,18 @@ export default function POSPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <h2>Confirmar orden</h2>
-            <p>Se enviara directamente a cocina.</p>
+            <p>Se enviará directamente a cocina.</p>
             <p>
-              <strong>{mesa}</strong>
-              {cliente ? ` - ${cliente}` : ""}
+              <strong>{mesaName}</strong>
+              {cliente ? ` — ${cliente}` : ""}
             </p>
             <p style={{ fontSize: "0.8rem", color: "#8fa898" }}>
-              {totalItems} articulo{totalItems > 1 ? "s" : ""}
-              {notas ? " - Notas especiales" : ""}
+              {totalItems} artículo{totalItems > 1 ? "s" : ""}
             </p>
             <div className="modal-total">{formatColones(total)}</div>
 
             {errorMsg && (
-              <div
-                style={{
-                  color: "#ef233c",
-                  fontSize: "0.85rem",
-                  margin: "10px 0",
-                  background: "rgba(239,35,60,0.06)",
-                  padding: "10px",
-                  borderRadius: "8px",
-                }}
-              >
-                {errorMsg}
-              </div>
+              <div className="error-inline">{errorMsg}</div>
             )}
 
             <div className="modal-buttons" style={{ marginTop: "16px" }}>
@@ -561,38 +1061,27 @@ export default function POSPage() {
                 disabled={isSubmitting || cart.length === 0}
                 style={{ opacity: isSubmitting ? 0.7 : 1 }}
               >
-                {isSubmitting ? "Procesando..." : "Confirmar"}
+                {isSubmitting ? "Procesando..." : (isOwner ? "Agregar a mi orden" : "Confirmar")}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* === SUCCESS TOAST === */}
+      {/* ===== SUCCESS SCREEN ===== */}
       {orderSuccess && (
-        <div
-          style={{
-            position: "fixed",
-            top: 20,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 200,
-            background: "#0f2618",
-            color: "#1cc672",
-            padding: "16px 24px",
-            borderRadius: "14px",
-            boxShadow: "0 8px 32px rgba(0,0,0,0.25)",
-            textAlign: "center",
-            animation: "fadeIn 0.3s ease",
-            maxWidth: "90%",
-          }}
-        >
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, marginBottom: 4 }}>
-            Orden enviada a cocina
+        <div className="order-success-overlay">
+          <div className="order-success-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
           </div>
-          <div style={{ fontSize: "0.85rem", color: "#ffb703" }}>
-            Numero de orden: {orderSuccess}
-          </div>
+          <h2 className="order-success-title">
+            {isOwner ? "¡Artículos Agregados!" : "¡Orden Recibida!"}
+          </h2>
+          <p className="order-success-sub">
+            {isOwner ? "Los artículos se sumaron a tu cuenta." : `Tu pedido #${orderSuccess} ha sido enviado a la cocina.`}
+          </p>
         </div>
       )}
     </>

@@ -6,26 +6,35 @@ export type CartItem = {
     price: number;
     quantity: number;
     category: string;
+    notas?: string;
 };
 
 export type OrderMeta = {
     mesa: string;
     cliente: string;
-    notas: string;
 };
 
 function formatColones(amount: number): string {
-    return "\u20A1" + amount.toLocaleString("es-CR");
+    const rounded = Math.round(amount).toString();
+    return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
 export async function generateInvoice(
     items: CartItem[],
     total: number,
-    meta: OrderMeta = { mesa: "Mesa 1", cliente: "", notas: "" },
+    meta: OrderMeta = { mesa: "Mesa 10", cliente: "" },
     ordenNu?: string
 ): Promise<void> {
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
+    const margin = 25;
+    const contentWidth = pageWidth - margin * 2;
+
+    // Col X positions
+    const colNameX = margin;
+    const colCantX = 130;
+    const colPriceX = 155;
+    const colTotalX = pageWidth - margin;
 
     // Load logo
     let logoData: string | null = null;
@@ -41,137 +50,183 @@ export async function generateInvoice(
         // Logo not available
     }
 
-    // === HEADER ===
-    const headerColor: [number, number, number] = [15, 38, 24];
-    doc.setFillColor(...headerColor);
-    doc.rect(0, 0, pageWidth, 48, "F");
+    let y = 30;
 
+    // ═══════════════════════════════════════
+    // HEADER — Minimalist & Elegant
+    // ═══════════════════════════════════════
+
+    // Logo Centered
     if (logoData) {
-        doc.addImage(logoData, "PNG", 15, 8, 30, 30);
+        doc.addImage(logoData, "PNG", pageWidth / 2 - 16, y, 32, 32);
+        y += 40;
+    } else {
+        y += 20;
     }
 
-    doc.setTextColor(28, 198, 114);
-    doc.setFontSize(20);
+    // Brand Name
+    doc.setTextColor(30, 40, 35);
     doc.setFont("helvetica", "bold");
-    doc.text("HIDEAWAY", 50, 20);
+    doc.setFontSize(22);
+    doc.text("HIDEAWAY", pageWidth / 2, y, { align: "center" });
 
+    // Subtitle
+    y += 6;
     doc.setFontSize(9);
-    doc.setTextColor(180, 210, 180);
+    doc.setTextColor(100, 110, 105);
     doc.setFont("helvetica", "normal");
-    doc.text("Restaurante & Cafe", 50, 28);
+    doc.text("RESTAURANTE & CAFÉ", pageWidth / 2, y, { align: "center", charSpace: 1 });
+
+    y += 15;
+
+    // Divider
+    doc.setDrawColor(220, 225, 222);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    // ═══════════════════════════════════════
+    // ORDER META INFO
+    // ═══════════════════════════════════════
+    y += 10;
 
     const now = new Date();
-    const dateStr = now.toLocaleDateString("es-CR", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-    });
-    const timeStr = now.toLocaleTimeString("es-CR", {
-        hour: "2-digit",
-        minute: "2-digit",
-    });
+    const dateStr = now.toLocaleDateString("es-CR", { timeZone: 'America/Costa_Rica', day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = now.toLocaleTimeString("es-CR", { timeZone: 'America/Costa_Rica', hour: '2-digit', minute: '2-digit' });
+    
 
-    doc.setFontSize(8);
-    doc.setTextColor(150, 180, 160);
-    doc.text(`Fecha: ${dateStr}`, pageWidth - 15, 18, { align: "right" });
-    doc.text(`Hora: ${timeStr}`, pageWidth - 15, 24, { align: "right" });
-    if (ordenNu) {
-        doc.setTextColor(255, 183, 3);
-        doc.text(`Orden: ${ordenNu}`, pageWidth - 15, 30, { align: "right" });
-    }
+    doc.setFontSize(10);
+    doc.setTextColor(50, 60, 55);
 
-    // === ORDER META ===
-    let y = 55;
-    doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(80, 100, 80);
-
+    // Left side: Order & Date
     doc.setFont("helvetica", "bold");
-    doc.text(meta.mesa, 18, y);
+    if (ordenNu) {
+        doc.text(`ORDEN: #${ordenNu}`, margin, y);
+    }
+    doc.setFont("helvetica", "normal");
+    doc.text(`Fecha: ${dateStr} ${timeStr}`, margin, y + 6);
+
+    // Right side: Table & Client
+    doc.setFont("helvetica", "bold");
+    doc.text(meta.mesa.toUpperCase(), pageWidth - margin, y, { align: "right" });
+
     doc.setFont("helvetica", "normal");
     if (meta.cliente) {
-        doc.text(`Cliente: ${meta.cliente}`, 60, y);
+        doc.text(`Cliente: ${meta.cliente}`, pageWidth - margin, y + 6, { align: "right" });
     }
-    y += 6;
-    if (meta.notas) {
-        doc.setTextColor(180, 140, 20);
-        doc.text(`Notas: ${meta.notas.substring(0, 80)}`, 18, y);
-        y += 6;
-    }
-    y += 4;
 
-    // === TABLE HEADER ===
-    doc.setFillColor(240, 245, 242);
-    doc.rect(15, y - 5, pageWidth - 30, 9, "F");
+    y += 14;
+
+    // Divider
+    doc.setDrawColor(220, 225, 222);
+    doc.setLineWidth(0.5);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    // ═══════════════════════════════════════
+    // TABLE HEADER
+    // ═══════════════════════════════════════
+    y += 8;
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(28, 198, 114);
-    doc.text("ARTICULO", 18, y);
-    doc.text("CANT", 110, y, { align: "center" });
-    doc.text("P. UNIT", 135, y, { align: "center" });
-    doc.text("SUBTOTAL", pageWidth - 18, y, { align: "right" });
+    doc.setTextColor(150, 160, 155);
 
-    y += 9;
+    doc.text("ARTÍCULO", colNameX, y);
+    doc.text("CANT", colCantX, y, { align: "center" });
+    doc.text("P. UNIT", colPriceX, y, { align: "right" });
+    doc.text("SUBTOTAL", colTotalX, y, { align: "right" });
 
-    // === TABLE ROWS ===
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    y += 4;
+    doc.setDrawColor(240, 245, 242);
+    doc.setLineWidth(0.2);
+    doc.line(margin, y, pageWidth - margin, y);
 
-    items.forEach((item, i) => {
+    // ═══════════════════════════════════════
+    // TABLE ROWS
+    // ═══════════════════════════════════════
+    y += 8;
+    doc.setFontSize(10);
+    doc.setTextColor(40, 50, 45);
+
+    items.forEach((item) => {
         if (y > 260) {
             doc.addPage();
             y = 20;
         }
 
-        if (i % 2 === 0) {
-            doc.setFillColor(248, 250, 249);
-            doc.rect(15, y - 5, pageWidth - 30, 8, "F");
-        }
+        // Item Name
+        doc.setFont("helvetica", "bold");
+        doc.text(item.name.substring(0, 42), colNameX, y);
 
-        doc.setTextColor(40, 60, 40);
-        doc.text(item.name.substring(0, 40), 18, y);
-        doc.text(String(item.quantity), 110, y, { align: "center" });
-        doc.text(formatColones(item.price), 135, y, { align: "center" });
-        doc.setTextColor(232, 153, 10);
-        doc.text(formatColones(item.price * item.quantity), pageWidth - 18, y, {
+        // Quantity
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(100, 110, 105);
+        doc.text(String(item.quantity), colCantX, y, { align: "center" });
+
+        // Unit Price
+        doc.text(formatColones(item.price), colPriceX, y, { align: "right" });
+
+        // Subtotal
+        doc.setTextColor(40, 50, 45);
+        doc.text(formatColones(item.price * item.quantity), colTotalX, y, {
             align: "right",
         });
 
-        y += 8;
+        if (item.notas) {
+            y += 4;
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "italic");
+            doc.setTextColor(120, 130, 125);
+            doc.text(`* ${item.notas}`, colNameX + 2, y);
+            doc.setFontSize(10);
+            doc.setFont("helvetica", "normal");
+        }
+
+        y += 12;
     });
 
-    // === TOTAL ===
-    y += 4;
-    doc.setDrawColor(200, 220, 210);
-    doc.setLineWidth(0.3);
-    doc.line(15, y, pageWidth - 15, y);
-    y += 10;
+    // ═══════════════════════════════════════
+    // TOTAL SECTION
+    // ═══════════════════════════════════════
 
-    doc.setFontSize(14);
+    // Top line for total
+    doc.setDrawColor(50, 60, 55);
+    doc.setLineWidth(0.8);
+    doc.line(margin, y, pageWidth - margin, y);
+
+    y += 12;
+
+    doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(28, 198, 114);
-    doc.text(`TOTAL: ${formatColones(total)}`, pageWidth - 18, y, {
-        align: "right",
-    });
+    doc.text("TOTAL", pageWidth - margin - 50, y, { align: "right" });
 
-    // === FOOTER ===
-    y += 20;
+    doc.setFontSize(16);
+    doc.text(formatColones(total), colTotalX, y, { align: "right" });
+
+    // Double line under total
+    y += 4;
+    doc.setLineWidth(0.3);
+    doc.line(pageWidth - margin - 70, y, pageWidth - margin, y);
+    y += 1.5;
+    doc.line(pageWidth - margin - 70, y, pageWidth - margin, y);
+
+    // ═══════════════════════════════════════
+    // FOOTER
+    // ═══════════════════════════════════════
+    y += 40;
+
     doc.setFontSize(10);
-    doc.setTextColor(28, 198, 114);
-    doc.text("Gracias por su visita!", pageWidth / 2, y, { align: "center" });
+    doc.setTextColor(100, 110, 105);
+    doc.setFont("helvetica", "normal");
+    doc.text("¡Muchas gracias por su preferencia!", pageWidth / 2, y, { align: "center" });
 
-    doc.setFontSize(7);
-    doc.setTextColor(150, 170, 150);
-    doc.text(
-        "Hideaway Restaurante & Cafe - Costa Rica",
-        pageWidth / 2,
-        y + 7,
-        { align: "center" }
-    );
+    y += 6;
+    doc.setFontSize(8);
+    doc.setTextColor(150, 160, 155);
+    doc.text("Este comprobante es para control interno.", pageWidth / 2, y, { align: "center" });
 
+    // Save
     const fileName = ordenNu
-        ? `Factura_Hideaway_${ordenNu}.pdf`
-        : `Factura_Hideaway_${Date.now()}.pdf`;
+        ? `Hideaway_Comprobante_${ordenNu}.pdf`
+        : `Hideaway_Comprobante_${Date.now()}.pdf`;
 
     doc.save(fileName);
 }

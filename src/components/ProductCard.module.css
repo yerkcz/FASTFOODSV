@@ -1,16 +1,30 @@
 .card {
     background: #ffffff;
-    border: 1.5px solid #e0e8e3;
+    border: 1.5px solid #dce8e0;
     border-radius: 14px;
-    padding: 14px;
+    padding: 12px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     display: flex;
     flex-direction: column;
     gap: 6px;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+    box-shadow: 0 2px 8px rgba(15, 38, 24, 0.04);
+    animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    /* Ensure cards have a minimum size for touch targets */
+    min-height: 110px;
+}
+
+.card::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    background: linear-gradient(135deg, rgba(28, 198, 114, 0.04), rgba(14, 140, 74, 0.02));
+    transition: opacity 0.25s ease;
+    pointer-events: none;
 }
 
 .card:active {
@@ -18,50 +32,119 @@
     border-color: #1cc672;
 }
 
-/* No hover transform on mobile, but keep for desktop */
+.card:active::before {
+    opacity: 1;
+}
+
+/* Desktop hover effect */
 @media (hover: hover) {
     .card:hover {
-        border-color: rgba(28, 198, 114, 0.5);
-        box-shadow: 0 4px 16px rgba(28, 198, 114, 0.12);
+        border-color: rgba(28, 198, 114, 0.45);
+        box-shadow: 0 6px 24px rgba(28, 198, 114, 0.14);
+        transform: translateY(-2px);
+    }
+
+    .card:hover::before {
+        opacity: 1;
     }
 }
 
+/* When there are items in cart for this product */
+.cardActive {
+    border-color: rgba(28, 198, 114, 0.4);
+    background: linear-gradient(135deg, rgba(28, 198, 114, 0.05), transparent);
+    box-shadow: 0 2px 12px rgba(28, 198, 114, 0.12);
+}
+
 .category {
-    font-size: 0.65rem;
+    font-size: 0.6rem;
     text-transform: uppercase;
-    letter-spacing: 1px;
+    letter-spacing: 1.2px;
     color: #1cc672;
-    font-weight: 600;
+    font-weight: 700;
+    /* Clamp to single line */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .name {
-    font-size: 0.9rem;
+    font-size: 0.875rem;
     font-weight: 600;
     color: #1a2e23;
     line-height: 1.3;
+    /* Allow 2 lines max */
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
+    flex: 1;
 }
 
+/* Bottom row: price left, controls right — wraps on very small screens */
 .bottom {
     display: flex;
     justify-content: space-between;
     align-items: center;
     margin-top: auto;
+    gap: 6px;
+    flex-wrap: nowrap;
+    min-height: 36px;
 }
 
 .price {
-    font-size: 1rem;
-    font-weight: 700;
+    font-size: 0.92rem;
+    font-weight: 800;
     color: #e8990a;
+    white-space: nowrap;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Quantity controls area on the card */
+.cardControls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+    /* Never let controls compress */
+    flex-basis: auto;
 }
 
 .addBtn {
-    background: #1cc672;
+    background: linear-gradient(135deg, #1cc672, #16a55e);
     color: white;
     border: none;
+    border-radius: 10px;
+    /* Touch-friendly minimum: 36px, 40px on larger screens */
+    width: 36px;
+    height: 36px;
+    font-size: 1.3rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    box-shadow: 0 2px 8px rgba(28, 198, 114, 0.3);
+    /* Ensure tap area is large enough on mobile */
+    touch-action: manipulation;
+}
+
+.addBtn:active {
+    transform: scale(0.88);
+    background: #0e8c4a;
+}
+
+/* Remove / minus button — muted red */
+.removeBtn {
+    background: rgba(239, 35, 60, 0.07);
+    color: #ef233c;
+    border: 1.5px solid rgba(239, 35, 60, 0.18);
     border-radius: 10px;
     width: 36px;
     height: 36px;
@@ -71,26 +154,87 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.15s ease;
+    transition: all 0.2s ease;
+    flex-shrink: 0;
+    touch-action: manipulation;
+}
+
+.removeBtn:active {
+    transform: scale(0.88);
+    background: rgba(239, 35, 60, 0.15);
+}
+
+/* Quantity badge on card */
+.qtyBadge {
+    background: rgba(28, 198, 114, 0.12);
+    color: #0e8c4a;
+    font-size: 0.82rem;
+    font-weight: 800;
+    min-width: 26px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    padding: 0 4px;
+    animation: scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     flex-shrink: 0;
 }
 
-.addBtn:active {
-    transform: scale(0.9);
-    background: #16a55e;
-}
-
-/* Ripple effect on add */
-.ripple {
-    animation: rippleAnim 0.4s ease-out;
-}
-
-@keyframes rippleAnim {
-    0% {
-        box-shadow: 0 0 0 0 rgba(28, 198, 114, 0.4);
+/* Very small phones — compact layout */
+@media (max-width: 360px) {
+    .card {
+        padding: 10px;
+        min-height: 100px;
     }
 
-    100% {
-        box-shadow: 0 0 0 20px rgba(28, 198, 114, 0);
+    .name {
+        font-size: 0.82rem;
+    }
+
+    .price {
+        font-size: 0.84rem;
+    }
+
+    .addBtn,
+    .removeBtn {
+        width: 32px;
+        height: 32px;
+        font-size: 1.1rem;
+        border-radius: 8px;
+    }
+}
+
+/* Tablet/desktop bigger cards */
+@media (min-width: 768px) {
+    .card {
+        padding: 16px;
+        min-height: 120px;
+    }
+
+    .name {
+        font-size: 0.95rem;
+    }
+
+    .price {
+        font-size: 1rem;
+    }
+
+    .addBtn,
+    .removeBtn {
+        width: 40px;
+        height: 40px;
+    }
+}
+
+@keyframes scaleIn {
+    from {
+        opacity: 0;
+        transform: scale(0.8);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
     }
 }
