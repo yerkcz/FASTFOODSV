@@ -32,13 +32,19 @@ export async function GET(request: Request) {
         }
 
         // 4. Check database for an open order for this table
+        // We select the FIRST host order (ORDER BY Fecha ASC) to maintain the original session lock,
+        // but we fetch the MAX(Ultima_Actividad) of ALL participants at the table.
         const res = await query(
-            `SELECT "Orden_Nu", "session_token", "table_pin", "Fecha" 
+            `SELECT 
+                "Orden_Nu", "session_token", "Fecha",
+                (SELECT MAX("Fecha_Desbloqueo") FROM "CLIENTES" WHERE "Mesa" = $1 AND "Estado" = 'Abierta') as "Fecha_Desbloqueo",
+                (SELECT MAX("Ultima_Actividad") FROM "CLIENTES" WHERE "Mesa" = $1 AND "Estado" = 'Abierta') as "Ultima_Actividad"
              FROM "CLIENTES" 
-             WHERE ("Nombre_Cliente" = $1 OR "Nombre_Cliente" LIKE $2) 
+             WHERE "Mesa" = $1 
              AND "Estado" = 'Abierta'
+             ORDER BY "Fecha" ASC
              LIMIT 1`,
-            [mesa, `${mesa} - %`]
+            [mesa]
         );
 
         const isOccupied = res.rows.length > 0;
@@ -61,21 +67,50 @@ export async function GET(request: Request) {
         const isOwner = sessionToken && timingSafeCompare(sessionToken, order.session_token || '');
 
         let isGuest = false;
-        if (!isOwner && guestToken && order.table_pin) {
-            isGuest = await validateGuestToken(guestToken, order.table_pin, mesa, order.Orden_Nu);
+        if (!isOwner && guestToken) {
+            isGuest = await validateGuestToken(guestToken, mesa, order.Orden_Nu);
         }
 
         let newGuestToken = undefined;
-        // Frictionless 15-minute auto-join grace period
-        if (!isOwner && !isGuest && order.table_pin && order.Fecha) {
+        let isBlocked = true;
+
+        // Verificar ventana inicial de 40 minutos desde primer pedido
+        if (order.Fecha) {
             const orderTime = new Date(order.Fecha).getTime();
             const now = Date.now();
             const elapsedMins = (now - orderTime) / (1000 * 60);
 
-            if (elapsedMins <= 15) {
-                newGuestToken = await generateGuestToken(order.table_pin, mesa, order.Orden_Nu);
-                isGuest = true;
+            if (elapsedMins <= 40) {
+                isBlocked = false;
             }
+        }
+
+        // Verificar extensión por actividad (30 min desde último pedido)
+        // Si alguien pidió algo en los últimos 30 minutos, la mesa sigue accesible
+        if (isBlocked && order.Ultima_Actividad) {
+            const lastActivityTime = new Date(order.Ultima_Actividad).getTime();
+            const now = Date.now();
+            const elapsedSinceActivity = (now - lastActivityTime) / (1000 * 60);
+            
+            if (elapsedSinceActivity <= 30) {
+                isBlocked = false;
+            }
+        }
+
+        // Verificar desbloqueo manual de 5 minutos (existente)
+        if (isBlocked && order.Fecha_Desbloqueo) {
+            const unlockTime = new Date(order.Fecha_Desbloqueo).getTime();
+            const now = Date.now();
+            const elapsedSinceUnlock = (now - unlockTime) / (1000 * 60);
+            if (elapsedSinceUnlock <= 5) {
+                isBlocked = false;
+            }
+        }
+
+        // Frictionless auto-join grace period
+        if (!isOwner && !isGuest && !isBlocked) {
+            newGuestToken = await generateGuestToken(mesa, order.Orden_Nu);
+            isGuest = true;
         }
 
         // Return detailed status
@@ -86,8 +121,7 @@ export async function GET(request: Request) {
                 isGuest,
                 guest_token: newGuestToken,
                 orden_nu: (isOwner || isGuest) ? order.Orden_Nu : undefined,
-                mesa,
-                table_pin: isOwner ? order.table_pin : undefined // Only reveal PIN to owner
+                mesa
             },
             {
                 status: 200,

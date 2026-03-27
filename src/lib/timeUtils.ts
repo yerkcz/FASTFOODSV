@@ -17,7 +17,8 @@ export function parseHora(s: string | null | undefined): Date {
   // Full timestamp (has a date part with dashes)
   if (s.includes("-") && s.includes(":")) {
     const withT = s.includes("T") ? s : s.replace(" ", "T");
-    const withZ = /[Z+\-]\d{2}$/.test(withT) ? withT : withT + "Z";
+    const hasTZ = withT.endsWith("Z") || /[+-]\d{2}(:\d{2})?$/.test(withT);
+    const withZ = hasTZ ? withT : withT + "Z";
     return new Date(withZ);
   }
 
@@ -54,19 +55,17 @@ export function getElapsedMins(hora: string | null | undefined): number {
 }
 
 /**
- * Format Rules — 5-level color system.
- * < 15 min  → Green  (fresh)
- * 15–29 min → Blue   (in progress)
- * 30–34 min → Yellow (attention)
+ * Format Rules — 4-level color system (confirmed by restaurant).
+ * < 30 min  → Green  (fresh, all good)
+ * 30–34 min → Yellow (getting slow)
  * 35–39 min → Orange (urgent)
- * ≥ 40 min  → Red    (critical)
+ * ≥ 40 min  → Red    (critical — must act now)
  */
 export function getTimeColor(hora: string | null | undefined): string {
   const mins = getElapsedMins(hora);
   if (mins >= 40) return "#d93025";
   if (mins >= 35) return "#e37400";
   if (mins >= 30) return "#f9ab00";
-  if (mins >= 15) return "#1a73e8";
   return "#1e8e3e";
 }
 

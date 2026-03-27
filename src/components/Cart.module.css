@@ -2,6 +2,8 @@
     display: flex;
     flex-direction: column;
     height: 100%;
+    /* Extra space at bottom so footer clears iOS home bar */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .title {
@@ -166,6 +168,10 @@
     border-top: 1.5px solid #dce8e0;
     padding-top: 16px;
     margin-top: 16px;
+    /* Ensure the Send-to-Kitchen / Confirm button is never hidden
+       behind the iOS home indicator or Android gesture bar */
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
 }
 
 .totalRow {

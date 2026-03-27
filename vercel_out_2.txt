@@ -1,0 +1,74 @@
+Retrieving project…
+Deploying yerkczs-projects/demo-pos
+Uploading [--------------------] (0.0B/27.2KB)
+Uploading [==============------] (19.2KB/27.2KB)
+Uploading [====================] (27.2KB/27.2KB)
+Inspect: https://vercel.com/yerkczs-projects/demo-pos/Cdxh5j9FhA7bK9TbXhf7SuY17HfK [2s]
+Production: https://demo-lhddf1kjn-yerkczs-projects.vercel.app [2s]
+https://demo-lhddf1kjn-yerkczs-projects.vercel.appBuilding...
+Building...
+Building: Running build in Washington, D.C., USA (East) – iad1
+Building: Build machine configuration: 2 cores, 8 GB
+Building: Retrieving list of deployment files...
+Building: Downloading 58 deployment files...
+Building: Restored build cache from previous deployment (D5hF9ucm5qaKHXAzzhjhgujd46Wf)
+Building: Running "vercel build"
+Building: Vercel CLI 50.35.0
+Building: Installing dependencies...
+Building: up to date in 897ms
+Building: 142 packages are looking for funding
+Building: run `npm fund` for details
+Building: Detected Next.js version: 16.1.6
+Building: Running "npm run build"
+Building: > demo-pos@0.1.0 build
+Building: > next build
+Building: ▲ Next.js 16.1.6 (Turbopack)
+Building: Creating an optimized production build ...
+Building: ✓ Compiled successfully in 9.6s
+Building: Running TypeScript ...
+Building: Collecting page data using 1 worker ...
+Building: Generating static pages using 1 worker (0/19) ...
+Building: Generating static pages using 1 worker (4/19)
+Building: Generating static pages using 1 worker (9/19)
+Building: Generating static pages using 1 worker (14/19)
+Building: ✓ Generating static pages using 1 worker (19/19) in 319.6ms
+Building: Finalizing page optimization ...
+Building: Route (app)
+Building: ┌ ○ /
+Building: ├ ○ /_not-found
+Building: ├ ○ /admin
+Building: ├ ƒ /api/admin/close-table
+Building: ├ ƒ /api/admin/closed-orders
+Building: ├ ƒ /api/admin/create-order
+Building: ├ ƒ /api/admin/delete-item
+Building: ├ ƒ /api/admin/reports
+Building: ├ ƒ /api/admin/table-details
+Building: ├ ƒ /api/admin/tables
+Building: ├ ƒ /api/kitchen/mark-ready
+Building: ├ ƒ /api/kitchen/orders
+Building: ├ ƒ /api/menu
+Building: ├ ƒ /api/order
+Building: ├ ƒ /api/table-join
+Building: ├ ƒ /api/table-status
+Building: ├ ƒ /api/tables
+Building: ├ ○ /bebidas-calientes
+Building: ├ ○ /bebidas-frias
+Building: ├ ○ /cocina
+Building: ├ ○ /entregados
+Building: ├ ○ /inicio
+Building: ├ ○ /mesas
+Building: └ ○ /nueva-comanda
+Building: ○  (Static)   prerendered as static content
+Building: ƒ  (Dynamic)  server-rendered on demand
+Building: Traced Next.js server files in: 37.744ms
+Building: Created all serverless functions in: 218.577ms
+Building: Collected static files (public/, static/, .next/static): 3.745ms
+Building: Build Completed in /vercel/output [21s]
+Building: Deploying outputs...
+[2K[1A[2K[GProduction: https://demo-lhddf1kjn-yerkczs-projects.vercel.app [35s]
+Completing...
+Aliased: https://demo-pos-five.vercel.app [35s]
+
+Common next commands:
+- `vercel inspect demo-lhddf1kjn-yerkczs-projects.vercel.app --logs`
+- `vercel redeploy demo-lhddf1kjn-yerkczs-projects.vercel.app`

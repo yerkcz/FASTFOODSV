@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from 'next/link';
 import Image from "next/image";
-import { formatTime, getElapsedMins } from "@/lib/timeUtils";
+import { formatTime, getElapsedMins, getTimeColor, getTimeBg, getUrgencyBadge, getElapsedLabel } from "@/lib/timeUtils";
 
 type MesaGroup = {
     mesa: string | null;
@@ -41,6 +41,11 @@ function formatColones(amount: number): string {
   return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
+/** Strip "Mesa " prefix to avoid "Mesa Mesa X" display duplication. */
+function stripMesaPrefix(s: string | null | undefined): string {
+  if (!s) return '';
+  return s.replace(/^Mesa\s+/i, '').trim();
+}
 
 export default function AdminPortal() {
     const [adminKey, setAdminKey] = useState<string>("");
@@ -87,6 +92,15 @@ export default function AdminPortal() {
     const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "Tarjeta" | "Sinpe">("Efectivo");
     const [amountReceived, setAmountReceived] = useState<string>("");
     const [splitCount, setSplitCount] = useState<number>(1);
+    // Split Bill
+    const [splitMode, setSplitMode] = useState<'none' | 'by_person' | 'manual' | 'manual_person' | 'equal'>('none');
+    const [splitN, setSplitN] = useState(2);
+    const [splitPersonIdx, setSplitPersonIdx] = useState(0);
+
+    // Phase E: Reassign Items
+    const [reassignModal, setReassignModal] = useState<{show: boolean, item: OrderItem} | null>(null);
+    const [reassignTarget, setReassignTarget] = useState<string>('');
+    const [reassigning, setReassigning] = useState(false);
 
     // Phase D: Admin Tabs & Closed Orders
     const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja">("open");
@@ -94,6 +108,9 @@ export default function AdminPortal() {
     const [closedTotal, setClosedTotal] = useState(0);
     const [closedTip, setClosedTip] = useState(0);
     const [meseroCount, setMeseroCount] = useState(1);
+
+    // Polling ref for open order detail
+    const detailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
     
     useEffect(() => {
         if (isLoggedIn && menu.length === 0) {
@@ -184,7 +201,19 @@ export default function AdminPortal() {
                     body: JSON.stringify(bodyData)
                 });
                 if (res.ok) {
+                    const data = await res.json();
                     fetchTables();
+                    // If it was a split (partial), refresh items instead of closing modal
+                    if (data.split) {
+                        // Remove the paid items from the UI
+                        setTableItems(prev => prev.filter(i => !itemIds?.includes(i.ID)));
+                        // Update selected payment items to remaining
+                        setSelectedPaymentItems(prev => prev.filter(id => !itemIds?.includes(id)));
+                        setSplitMode('none');
+                        setAmountReceived('');
+                        setClosing(null);
+                        return; // Don't close the modal
+                    }
                 } else {
                     const data = await res.json();
                     alert(data.error || "Error al cerrar la mesa");
@@ -204,6 +233,28 @@ export default function AdminPortal() {
         );
     };
 
+    const unlockTable = async (e: React.MouseEvent, group: MesaGroup) => {
+        e.stopPropagation();
+        if (!group.mesa) {
+            alert("Solo las órdenes de Restaurante (en mesa) se pueden desbloquear.");
+            return;
+        }
+        try {
+            const res = await fetch("/api/admin/unlock-table", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+                body: JSON.stringify({ mesa: group.mesa })
+            });
+            if (res.ok) {
+                alert(`Mesa ${group.mesa} abierta. ¡Tu invitado tiene 5 minutos para escanear el QR!`);
+            } else {
+                alert("Error al desbloquear la mesa.");
+            }
+        } catch (err) {
+            alert("Error de conexión al intentar desbloquear la mesa.");
+        }
+    };
+
     const openTableDetails = async (group: MesaGroup) => {
         setSelectedGroup(group);
         setLoadingDetails(true);
@@ -211,6 +262,9 @@ export default function AdminPortal() {
         setSelectedPaymentItems([]);
         setPaymentMethod("Efectivo");
         setAmountReceived("");
+        setSplitMode('none');
+        setSplitN(2);
+        setSplitPersonIdx(0);
         try {
             const ordenesParam = group.ordenes.map(o => o.orden_nu).join(',');
             const res = await fetch(`/api/admin/table-details?ordenes=${ordenesParam}`, {
@@ -227,6 +281,61 @@ export default function AdminPortal() {
             setLoadingDetails(false);
         }
     };
+
+    // Background refresh for open order detail (keeps items in sync with kitchen)
+    const refreshTableDetails = useCallback(async (group: MesaGroup) => {
+        try {
+            const ordenesParam = group.ordenes.map(o => o.orden_nu).join(',');
+            const res = await fetch(`/api/admin/table-details?ordenes=${ordenesParam}`, {
+                headers: { "x-admin-key": adminKey }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setTableItems(data.items);
+            }
+        } catch (err) {
+            // Silent fail — don't disrupt UI on background poll error
+        }
+    }, [adminKey]);
+
+    // Start/stop polling when order detail panel opens or closes
+    useEffect(() => {
+        if (detailPollRef.current) clearInterval(detailPollRef.current);
+        if (selectedGroup) {
+            detailPollRef.current = setInterval(() => {
+                refreshTableDetails(selectedGroup);
+            }, 5000);
+        }
+        return () => {
+            if (detailPollRef.current) clearInterval(detailPollRef.current);
+        };
+    }, [selectedGroup, refreshTableDetails]);
+
+    const submitReassignItem = async () => {
+        if (!reassignModal || !reassignTarget) return;
+        setReassigning(true);
+        try {
+            const res = await fetch("/api/admin/reassign-item", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+                body: JSON.stringify({ itemId: reassignModal.item.ID, targetOrdenNu: reassignTarget })
+            });
+            if (res.ok) {
+                setTableItems(prev => prev.filter(i => i.ID !== reassignModal.item.ID));
+                setReassignModal(null);
+                setReassignTarget('');
+                fetchTables();
+            } else {
+                const data = await res.json();
+                alert(data.error || "Error al reasignar el ítem");
+            }
+        } catch(err) {
+            alert("Error de conexión");
+        } finally {
+            setReassigning(false);
+        }
+    };
+
 
     const deleteItem = async (itemId: string, itemName: string) => {
         const doDelete = async () => {
@@ -507,10 +616,12 @@ export default function AdminPortal() {
                                     <div style={{ padding: "16px", paddingLeft: "24px", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                                         <div>
                                             <div style={{ fontSize: "1.1rem", color: "#202124", fontWeight: 700, marginBottom: '4px' }}>
-                                                {group.mesa ? `Mesa ${group.mesa}` : `Para Llevar:`}
+                                                {group.mesa ? `Mesa ${stripMesaPrefix(group.mesa)}` : `Para Llevar:`}
                                             </div>
                                             {group.ordenes.map(o => (
-                                                <div key={o.orden_nu} style={{ fontSize: "0.85rem", color: "#5f6368" }}>• {o.cliente || '-'} (#{o.orden_nu})</div>
+                                                <div key={o.orden_nu} style={{ fontSize: "0.85rem", color: "#5f6368" }}>
+                                                    • {stripMesaPrefix(o.cliente) || '(sin nombre)'} (#{o.orden_nu})
+                                                </div>
                                             ))}
                                             <div style={{ fontSize: "0.75rem", color: "#80868b", marginTop: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
@@ -526,7 +637,19 @@ export default function AdminPortal() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'flex-end', backgroundColor: '#fcfcfc' }}>
+                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', backgroundColor: '#fcfcfc' }}>
+                                        <button 
+                                            onClick={(e) => unlockTable(e, group)}
+                                            style={{ 
+                                                background: 'none', border: '1px solid #1a73e8', color: '#1a73e8', fontSize: '0.8rem', fontWeight: 600, 
+                                                letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
+                                                padding: '6px 12px', borderRadius: '4px', transition: 'all 0.2s',
+                                                backgroundColor: 'white'
+                                            }}
+                                            title="Otorgar 5 minutos de acceso para un nuevo integrante de la mesa"
+                                        >
+                                            🔓 ADMITIR
+                                        </button>
                                         <button 
                                             onClick={(e) => closeTableGroup(e, group)}
                                             disabled={closing === targetId}
@@ -635,16 +758,20 @@ export default function AdminPortal() {
                         </div>
                         <div style={{ flex: 1 }}>
                             <div style={{ fontSize: '1.1rem', color: '#202124', fontWeight: 800 }}>
-                                Check-out: {selectedGroup.mesa ? `Mesa ${selectedGroup.mesa}` : selectedGroup.ordenes[0].cliente}
+                                Check-out: {selectedGroup.mesa ? `Mesa ${selectedGroup.mesa}` : stripMesaPrefix(selectedGroup.ordenes[0].cliente) || selectedGroup.ordenes[0].cliente}
                             </div>
                             {selectedGroup.ordenes.length > 1 && <div style={{fontSize: '0.75rem', color: '#5f6368', fontWeight: 500}}>{selectedGroup.ordenes.length} comandas consolidadas</div>}
                         </div>
-                        <div style={{ color: '#137333', fontWeight: 800, fontSize: '1.2rem', background: '#e6f4ea', padding: '4px 12px', borderRadius: '16px' }}>
-                            {formatColones(selectedGroup.total_mesa)}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            {/* Live sync indicator */}
+                            <div title="Actualizando en tiempo real" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#25d366', animation: 'pulse 2s ease-in-out infinite', flexShrink: 0 }} />
+                            <div style={{ color: '#137333', fontWeight: 800, fontSize: '1.2rem', background: '#e6f4ea', padding: '4px 12px', borderRadius: '16px' }}>
+                                {formatColones(selectedGroup.total_mesa)}
+                            </div>
                         </div>
                     </header>
 
-                    <div style={{ padding: '16px', overflowY: 'auto', flex: 1, paddingBottom: '280px' }}>
+                    <div style={{ padding: '16px', overflowY: 'auto', flex: 1, paddingBottom: splitMode === 'none' ? '320px' : splitMode === 'equal' ? '380px' : '340px', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
                         {loadingDetails ? (
                             <div style={{ textAlign: 'center', padding: '60px', color: '#5f6368' }}>
                                 <div className="loading-spinner" style={{ margin: '0 auto 16px', borderTopColor: '#25d366' }}></div>
@@ -659,9 +786,14 @@ export default function AdminPortal() {
                                 </div>
                                 {tableItems.map((item, index) => {
                                     const horaStr = item.HoraRegistro || item.FechaRegistro;
-                                    const minsElapsed = getElapsedMins(horaStr);
                                     const isReady = !!item.LISTO;
-                                    const isLate = !isReady && minsElapsed >= 15;
+                                    // Use correct 4-level format rules from timeUtils
+                                    const tColor = isReady ? '#1e8e3e' : getTimeColor(horaStr);
+                                    const tBg = isReady ? 'transparent' : getTimeBg(horaStr);
+                                    const urgencyBadge = isReady ? null : getUrgencyBadge(horaStr);
+                                    const elapsed = isReady ? 0 : getElapsedMins(horaStr);
+                                    // Person name from order cross-reference
+                                    const personName = selectedGroup.ordenes.find(o => o.orden_nu === item.Orden_Nu)?.cliente || null;
 
                                     return (
                                     <div key={item.ID} 
@@ -669,9 +801,10 @@ export default function AdminPortal() {
                                         style={{ 
                                             padding: '16px', borderBottom: index < tableItems.length - 1 ? '1px solid #f1f3f4' : 'none',
                                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                            cursor: 'pointer', background: selectedPaymentItems.includes(item.ID) ? 'white' : '#fafafa',
+                                            cursor: 'pointer', background: tBg !== 'transparent' ? tBg : (selectedPaymentItems.includes(item.ID) ? 'white' : '#fafafa'),
                                             opacity: selectedPaymentItems.includes(item.ID) ? 1 : 0.6,
-                                            transition: 'all 0.1s'
+                                            transition: 'all 0.1s',
+                                            borderLeft: `4px solid ${tColor}`
                                     }}>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                                             <div style={{ 
@@ -686,15 +819,22 @@ export default function AdminPortal() {
                                                 <div style={{ fontSize: '1.05rem', color: isReady ? '#137333' : '#202124', fontWeight: 600, textDecoration: isReady ? 'line-through' : 'none' }}>
                                                     {item.CANTIDAD}x {item.ARTICULO}
                                                     {isReady && <span style={{fontSize: '0.65rem', marginLeft: '6px', background: '#e6f4ea', padding: '4px', borderRadius: '4px', textDecoration: 'none', display: 'inline-block', fontWeight: 800}}>LISTO</span>}
+                                                    {urgencyBadge && <span style={{fontSize: '0.65rem', marginLeft: '6px', background: elapsed >= 40 ? '#fce8e6' : '#fef3e2', color: tColor, padding: '2px 5px', borderRadius: '4px', fontWeight: 800}}>{urgencyBadge}</span>}
                                                 </div>
-                                                <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                                    <span>{formatColones(item.PRECIO)} c/u {item.Orden_Nu ? ` (#${item.Orden_Nu})` : ''}</span>
+                                                <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                                                    {personName && (
+                                                        <span style={{ background: '#e8f0fe', color: '#1a73e8', padding: '1px 7px', borderRadius: '10px', fontWeight: 700, fontSize: '0.72rem' }}>
+                                                            👤 {personName}
+                                                        </span>
+                                                    )}
+                                                    <span>{formatColones(item.PRECIO)} c/u</span>
                                                     <span style={{ color: '#dadce0' }}>|</span>
-                                                    <span style={{ color: isLate ? '#d93025' : '#80868b', fontWeight: isLate ? 800 : 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <span style={{ color: tColor, fontWeight: elapsed >= 30 ? 800 : 500, display: 'flex', alignItems: 'center', gap: '4px' }}>
                                                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                                                        {formatTime(horaStr)} {isLate ? `(+${minsElapsed}m)` : ''}
+                                                        {formatTime(horaStr)}{!isReady && elapsed > 0 ? ` (+${getElapsedLabel(horaStr)})` : ''}
                                                     </span>
                                                 </div>
+                                                {item.NOTAS && <div style={{ fontSize: '0.75rem', color: '#d93025', fontStyle: 'italic', marginTop: '3px' }}>📝 {item.NOTAS}</div>}
                                             </div>
                                         </div>
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -702,13 +842,13 @@ export default function AdminPortal() {
                                                 {formatColones(item.TOTAL)}
                                             </div>
                                             <button 
-                                                onClick={(e) => { e.stopPropagation(); deleteItem(item.ID, item.ARTICULO); }}
+                                                onClick={(e) => { e.stopPropagation(); setReassignModal({ show: true, item }); }}
                                                 disabled={deletingItem === item.ID}
                                                 style={{ 
                                                     background: '#fce8e6', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '50%',
                                                     color: '#d93025', opacity: deletingItem === item.ID ? 0.5 : 1
                                                 }}
-                                                title="Anular Ítem"
+                                                title="Gestionar Ítem"
                                             >
                                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
                                             </button>
@@ -720,85 +860,289 @@ export default function AdminPortal() {
                         )}
                     </div>
 
+                    {/* ===== SPLIT BILL FOOTER ===== */}
                     <div style={{ 
                         position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'white', 
-                        borderTop: '1px solid #e0e0e0', padding: '20px', paddingBottom: 'max(20px, env(safe-area-inset-bottom))', 
-                        boxShadow: '0 -4px 16px rgba(0,0,0,0.08)',
-                        zIndex: 2001
+                        borderTop: '1px solid #e0e0e0', padding: '14px 16px', paddingBottom: 'max(14px, env(safe-area-inset-bottom))', 
+                        boxShadow: '0 -4px 16px rgba(0,0,0,0.08)', zIndex: 2001, maxHeight: '55dvh', overflowY: 'auto',
+                        WebkitOverflowScrolling: 'touch'
                     }}>
-                        <div style={{ marginBottom: '16px', fontSize: '0.9rem', color: '#5f6368' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontWeight: 500 }}>
-                                <span>Subtotal Consumos</span>
-                                <span style={{color: '#202124'}}>{formatColones(checkoutSubtotal)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', fontWeight: 500 }}>
-                                <span>Cargo Servicio (10%)</span>
-                                <span style={{color: '#202124'}}>{formatColones(checkoutServiceCharge)}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderTop: '2px solid #f1f3f4', marginTop: '8px', fontSize: '1.5rem', fontWeight: 800, color: '#137333' }}>
-                                <span>TOTAL A COBRAR</span>
-                                <span>{formatColones(checkoutSelectedTotal)}</span>
-                            </div>
-                        </div>
 
-                        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                            {["Efectivo", "Tarjeta", "Sinpe"].map((method) => (
-                                <button
-                                    key={method}
-                                    onClick={() => {
-                                        setPaymentMethod(method as any);
-                                        if (method !== 'Efectivo') setAmountReceived(checkoutSelectedTotal.toString());
-                                        else setAmountReceived('');
-                                    }}
-                                    style={{
-                                        flex: 1, padding: '12px', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 600,
-                                        border: '1px solid', cursor: 'pointer', transition: 'all 0.2s',
-                                        ...(paymentMethod === method 
-                                            ? { backgroundColor: '#e6f4ea', color: '#137333', borderColor: '#25d366' }
-                                            : { backgroundColor: '#f8f9fa', color: '#5f6368', borderColor: '#dadce0' })
-                                    }}
-                                >
-                                    {method}
-                                </button>
-                            ))}
-                        </div>
+                    {/* ---------- ESTADO: no split seleccionado ---------- */}
+                    {splitMode === 'none' && (() => {
+                        const sub = checkoutSubtotal;
+                        const svc = checkoutServiceCharge;
+                        const tot = checkoutSelectedTotal;
+                        return (
+                        <>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.85rem', color: '#5f6368' }}>
+                                <span>Subtotal</span><span>{formatColones(sub)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.85rem', color: '#5f6368' }}>
+                                <span>Servicio 10%</span><span>{formatColones(svc)}</span>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.4rem', fontWeight: 800, color: '#137333', borderTop: '2px solid #f1f3f4', paddingTop: '8px', marginBottom: '12px' }}>
+                                <span>TOTAL</span><span>{formatColones(tot)}</span>
+                            </div>
 
-                        {paymentMethod === "Efectivo" && (
-                            <div style={{ display: 'flex', gap: '16px', marginBottom: '16px', alignItems: 'center' }}>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: '0.75rem', color: '#5f6368', textTransform: 'uppercase', marginBottom: '4px', fontWeight: 600 }}>Paga con</div>
-                                    <input 
-                                        type="number" 
-                                        placeholder="Ingrese monto..." 
-                                        value={amountReceived}
+                            {/* Modo de pago */}
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                                {(['Efectivo','Tarjeta','Sinpe'] as const).map(m => (
+                                    <button key={m} onClick={() => { setPaymentMethod(m); if (m !== 'Efectivo') setAmountReceived(tot.toString()); else setAmountReceived(''); }}
+                                        style={{ flex:'1 1 80px', padding:'10px', borderRadius:'8px', fontSize:'0.85rem', fontWeight:600, border:'1px solid', cursor:'pointer', transition:'all 0.15s', minHeight:'44px',
+                                            ...(paymentMethod === m ? {backgroundColor:'#e6f4ea', color:'#137333', borderColor:'#25d366'} : {backgroundColor:'#f8f9fa', color:'#5f6368', borderColor:'#dadce0'}) }}
+                                    >{m}</button>
+                                ))}
+                            </div>
+
+                            {paymentMethod === 'Efectivo' && (
+                                <div style={{ display:'flex', gap:'12px', marginBottom:'12px', alignItems:'center' }}>
+                                    <input type="number" placeholder="Monto recibido" min="0" value={amountReceived}
                                         onChange={e => setAmountReceived(e.target.value)}
-                                        style={{ width: '100%', padding: '12px', fontSize: '1.25rem', fontWeight: 700, border: '2px solid #dadce0', borderRadius: '8px', outline: 'none', boxSizing: 'border-box', color: '#202124' }}
-                                    />
+                                        style={{ flex:1, padding:'12px', fontSize:'1.1rem', fontWeight:700, border:'2px solid #dadce0', borderRadius:'8px' }} />
+                                    {Number(amountReceived) > tot && (
+                                        <div style={{ flex:1, background:'#f8fbfc', padding:'12px', borderRadius:'8px', border:'1px solid #e1f5fe', textAlign:'center' }}>
+                                            <div style={{ fontSize:'0.7rem', color:'#5f6368', fontWeight:600, textTransform:'uppercase' }}>Vuelto</div>
+                                            <div style={{ fontSize:'1.4rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-tot))}</div>
+                                        </div>
+                                    )}
                                 </div>
-                                {Number(amountReceived) > checkoutSelectedTotal && (
-                                    <div style={{ flex: 1, textAlign: 'right', background: '#f8fbfc', padding: '12px', borderRadius: '8px', border: '1px solid #e1f5fe' }}>
-                                        <div style={{ fontSize: '0.75rem', color: '#5f6368', textTransform: 'uppercase', marginBottom: '2px', fontWeight: 600 }}>Vuelto (Dar)</div>
-                                        <div style={{ fontSize: '1.5rem', color: '#1a73e8', fontWeight: 800 }}>
-                                            {formatColones(Math.max(0, (Number(amountReceived) || 0) - checkoutSelectedTotal))}
+                            )}
+
+                            <div style={{ display:'flex', gap:'8px' }}>
+                                {/* Cobrar Todo */}
+                                <button onClick={checkOutAndClose}
+                                    disabled={closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) || tot === 0}
+                                    style={{ flex:2, padding:'14px', background: tot===0?'#f1f3f4':'linear-gradient(135deg,#25d366,#137333)', color: tot===0?'#9aa0a6':'white', border:'none', borderRadius:'8px', fontSize:'0.9rem', fontWeight:800, textTransform:'uppercase', cursor: tot===0?'default':'pointer', boxShadow: tot===0?'none':'0 4px 12px rgba(37,211,102,0.3)' }}>
+                                    {closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) ? 'CERRANDO...' : `COBRAR ${formatColones(tot)}`}
+                                </button>
+                                {/* Dividir Cuenta */}
+                                <button onClick={() => setSplitMode('by_person')}
+                                    style={{ flex:1, padding:'14px', background:'#e8f0fe', color:'#1a73e8', border:'none', borderRadius:'8px', fontSize:'0.85rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                                    Dividir
+                                </button>
+                            </div>
+                        </>
+                        );
+                    })()}
+
+                    {/* ---------- MODO A: Por Persona ---------- */}
+                    {splitMode === 'by_person' && (() => {
+                        return (
+                        <>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'12px' }}>
+                                <button onClick={() => setSplitMode('none')} style={{ background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#5f6368' }}>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                                </button>
+                                <div style={{ flex:1, fontSize:'1rem', fontWeight:800, color:'#202124' }}>Cobrar por Persona</div>
+                            </div>
+                            {/* Lista de personas */}
+                            <div style={{ display:'flex', flexDirection:'column', gap:'8px', marginBottom:'8px', maxHeight:'40dvh', overflowY:'auto', WebkitOverflowScrolling:'touch' }}>
+                                {selectedGroup.ordenes.map((orden, idx) => {
+                                    const personItems = tableItems.filter(i => i.Orden_Nu === orden.orden_nu);
+                                    const personSub = personItems.reduce((s,i) => s+i.TOTAL, 0);
+                                    const personTot = Math.round(personSub * 1.1);
+                                    return (
+                                    <div key={orden.orden_nu}
+                                        onClick={() => { setSelectedPaymentItems(personItems.map(i=>i.ID)); setSplitPersonIdx(idx); setSplitMode('manual_person'); setAmountReceived(''); }}
+                                        style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'14px 16px', background: splitPersonIdx===idx?'#e8f0fe':'#f8f9fa', border: splitPersonIdx===idx?'2px solid #1a73e8':'2px solid transparent', borderRadius:'10px', cursor:'pointer', transition:'all 0.15s' }}>
+                                        <div>
+                                            <div style={{ fontWeight:700, color:'#202124', fontSize:'0.95rem' }}>{orden.cliente || '(sin nombre)'}</div>
+                                            <div style={{ fontSize:'0.75rem', color:'#5f6368', marginTop:'2px' }}>{personItems.length} ítem{personItems.length!==1?'s':''} • #{orden.orden_nu}</div>
+                                        </div>
+                                        <div style={{ textAlign:'right' }}>
+                                            <div style={{ fontWeight:800, fontSize:'1rem', color:'#137333' }}>{formatColones(personTot)}</div>
+                                            <div style={{ fontSize:'0.7rem', color:'#80868b' }}>c/servicio</div>
                                         </div>
                                     </div>
-                                )}
+                                    );
+                                })}
                             </div>
-                        )}
+                            {/* También ofrece los otros modos */}
+                            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'8px' }}>
+                                <button onClick={() => { setSplitMode('manual'); setSelectedPaymentItems([]); }}
+                                    style={{ padding:'10px', background:'#fef3e2', color:'#e37400', border:'none', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer' }}>
+                                    ✎ Selección Manual
+                                </button>
+                                <button onClick={() => { setSplitMode('equal'); setSplitN(2); }}
+                                    style={{ padding:'10px', background:'#f3e8ff', color:'#7c3aed', border:'none', borderRadius:'8px', fontSize:'0.8rem', fontWeight:700, cursor:'pointer' }}>
+                                    ÷ Partes Iguales
+                                </button>
+                            </div>
+                        </>
+                        );
+                    })()}
 
-                        <button 
-                            onClick={checkOutAndClose}
-                            disabled={closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) || checkoutSelectedTotal === 0}
-                            style={{ 
-                                width: '100%', padding: '16px', 
-                                background: checkoutSelectedTotal === 0 ? '#f1f3f4' : 'linear-gradient(135deg, #25d366 0%, #137333 100%)', 
-                                color: checkoutSelectedTotal === 0 ? '#9aa0a6' : 'white', border: 'none', borderRadius: '8px',
-                                fontSize: '1rem', fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', 
-                                cursor: checkoutSelectedTotal === 0 ? 'default' : 'pointer', boxShadow: checkoutSelectedTotal === 0 ? 'none' : '0 4px 12px rgba(37,211,102,0.3)', transition: 'all 0.2s'
-                            }}
-                        >
-                            {closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) ? 'CERRANDO CUENTA...' : `APLICAR COBRO DE ${formatColones(checkoutSelectedTotal)}`}
-                        </button>
+                    {/* ---------- MODO A2: cobro de persona seleccionada ---------- */}
+                    {splitMode === 'manual_person' && (() => {
+                        const sub = tableItems.filter(i=>selectedPaymentItems.includes(i.ID)).reduce((s,i)=>s+i.TOTAL,0);
+                        const svc = Math.round(sub*0.1);
+                        const tot = sub+svc;
+                        const persona = selectedGroup.ordenes[splitPersonIdx]?.cliente || '(sin nombre)';
+                        return (
+                        <>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px' }}>
+                                <button onClick={() => setSplitMode('by_person')} style={{ background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#5f6368' }}>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                                </button>
+                                <div style={{ flex:1 }}>
+                                    <div style={{ fontWeight:800, color:'#202124' }}>Cobrar: {persona}</div>
+                                    <div style={{ fontSize:'0.75rem', color:'#5f6368' }}>{selectedPaymentItems.length} ítems • Total con servicio: {formatColones(tot)}</div>
+                                </div>
+                            </div>
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'10px' }}>
+                                {(['Efectivo','Tarjeta','Sinpe'] as const).map(m => (
+                                    <button key={m} onClick={() => { setPaymentMethod(m); if (m!=='Efectivo') setAmountReceived(tot.toString()); else setAmountReceived(''); }}
+                                        style={{ flex:'1 1 80px', padding:'8px', borderRadius:'8px', fontSize:'0.8rem', fontWeight:600, border:'1px solid', cursor:'pointer', minHeight:'44px',
+                                            ...(paymentMethod===m?{backgroundColor:'#e6f4ea',color:'#137333',borderColor:'#25d366'}:{backgroundColor:'#f8f9fa',color:'#5f6368',borderColor:'#dadce0'}) }}
+                                    >{m}</button>
+                                ))}
+                            </div>
+                            {paymentMethod==='Efectivo' && (
+                                <div style={{ display:'flex', gap:'10px', marginBottom:'10px', alignItems:'center' }}>
+                                    <input type="number" placeholder={`Paga con (total: ${tot})`} min="0" value={amountReceived}
+                                        onChange={e => setAmountReceived(e.target.value)}
+                                        style={{ flex:1, padding:'10px', fontSize:'1rem', fontWeight:700, border:'2px solid #dadce0', borderRadius:'8px' }} />
+                                    {Number(amountReceived)>tot && (
+                                        <div style={{ background:'#f8fbfc', padding:'10px', borderRadius:'8px', border:'1px solid #e1f5fe', textAlign:'center' }}>
+                                            <div style={{ fontSize:'0.65rem', color:'#5f6368', fontWeight:600 }}>VUELTO</div>
+                                            <div style={{ fontSize:'1.2rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-tot))}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            <button onClick={checkOutAndClose}
+                                disabled={closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu) || tot===0 || (paymentMethod==='Efectivo' && Number(amountReceived)<tot)}
+                                style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#25d366,#137333)', color:'white', border:'none', borderRadius:'8px', fontSize:'0.9rem', fontWeight:800, textTransform:'uppercase', cursor:'pointer', boxShadow:'0 4px 12px rgba(37,211,102,0.3)' }}>
+                                {closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu)?'PROCESANDO...': `COBRAR ${persona}: ${formatColones(tot)}`}
+                            </button>
+                        </>
+                        );
+                    })()}
+
+                    {/* ---------- MODO B: Selección Manual ---------- */}
+                    {splitMode === 'manual' && (() => {
+                        const sub = tableItems.filter(i=>selectedPaymentItems.includes(i.ID)).reduce((s,i)=>s+i.TOTAL,0);
+                        const svc = Math.round(sub*0.1);
+                        const tot = sub+svc;
+                        return (
+                        <>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'8px' }}>
+                                <button onClick={() => setSplitMode('none')} style={{ background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#5f6368' }}>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                                </button>
+                                <div style={{ flex:1 }}>
+                                    <div style={{ fontWeight:800, color:'#202124' }}>Selección Manual</div>
+                                    <div style={{ fontSize:'0.75rem', color:'#5f6368' }}>Toca los ítems de arriba para activar/desactivar · {selectedPaymentItems.length} seleccionados</div>
+                                </div>
+                            </div>
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'8px' }}>
+                                {(['Efectivo','Tarjeta','Sinpe'] as const).map(m => (
+                                    <button key={m} onClick={() => { setPaymentMethod(m); if(m!=='Efectivo') setAmountReceived(tot.toString()); else setAmountReceived(''); }}
+                                        style={{ flex:'1 1 80px', padding:'8px', borderRadius:'8px', fontSize:'0.8rem', fontWeight:600, border:'1px solid', cursor:'pointer', minHeight:'44px',
+                                            ...(paymentMethod===m?{backgroundColor:'#e6f4ea',color:'#137333',borderColor:'#25d366'}:{backgroundColor:'#f8f9fa',color:'#5f6368',borderColor:'#dadce0'}) }}
+                                    >{m}</button>
+                                ))}
+                            </div>
+                            {paymentMethod==='Efectivo' && (
+                                <div style={{ display:'flex', gap:'10px', marginBottom:'8px', alignItems:'center' }}>
+                                    <input type="number" placeholder="Monto recibido" min="0" value={amountReceived}
+                                        onChange={e => setAmountReceived(e.target.value)}
+                                        style={{ flex:1, padding:'10px', fontSize:'1rem', fontWeight:700, border:'2px solid #dadce0', borderRadius:'8px' }} />
+                                    {Number(amountReceived)>tot && (
+                                        <div style={{ background:'#f8fbfc', padding:'10px', borderRadius:'8px', border:'1px solid #e1f5fe', textAlign:'center' }}>
+                                            <div style={{ fontSize:'0.65rem', color:'#5f6368', fontWeight:600 }}>VUELTO</div>
+                                            <div style={{ fontSize:'1.2rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-tot))}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px' }}>
+                                <div>
+                                    <div style={{ fontSize:'0.7rem', color:'#5f6368', textTransform:'uppercase', fontWeight:600 }}>Seleccionado + 10%</div>
+                                    <div style={{ fontSize:'1.3rem', fontWeight:800, color:'#137333' }}>{formatColones(tot)}</div>
+                                </div>
+                                <div style={{ display:'flex', gap:'8px' }}>
+                                    <button onClick={() => setSelectedPaymentItems(tableItems.map(i=>i.ID))} style={{ padding:'6px 12px', background:'#e6f4ea', color:'#137333', border:'none', borderRadius:'6px', fontSize:'0.75rem', fontWeight:700, cursor:'pointer' }}>Todo</button>
+                                    <button onClick={() => setSelectedPaymentItems([])} style={{ padding:'6px 12px', background:'#fce8e6', color:'#d93025', border:'none', borderRadius:'6px', fontSize:'0.75rem', fontWeight:700, cursor:'pointer' }}>Nada</button>
+                                </div>
+                            </div>
+                            <button onClick={checkOutAndClose}
+                                disabled={closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu)||tot===0||(paymentMethod==='Efectivo'&&Number(amountReceived)<tot)}
+                                style={{ width:'100%', padding:'14px', background:tot===0?'#f1f3f4':'linear-gradient(135deg,#25d366,#137333)', color:tot===0?'#9aa0a6':'white', border:'none', borderRadius:'8px', fontSize:'0.9rem', fontWeight:800, textTransform:'uppercase', cursor:tot===0?'default':'pointer', boxShadow:tot===0?'none':'0 4px 12px rgba(37,211,102,0.3)' }}>
+                                {closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu)?'CERRANDO...': tot===0?'SELECCIONA ÍTEMS':`COBRAR ${formatColones(tot)}`}
+                            </button>
+                        </>
+                        );
+                    })()}
+
+                    {/* ---------- MODO C: Partes Iguales ---------- */}
+                    {splitMode === 'equal' && (() => {
+                        const totalMesa = Math.round(checkoutSubtotal * 1.1);
+                        const parte = Math.ceil(totalMesa / splitN);
+                        return (
+                        <>
+                            <div style={{ display:'flex', alignItems:'center', gap:'10px', marginBottom:'10px' }}>
+                                <button onClick={() => setSplitMode('none')} style={{ background:'none', border:'none', cursor:'pointer', padding:'4px', color:'#5f6368' }}>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                                </button>
+                                <div style={{ flex:1, fontWeight:800, color:'#202124' }}>Partes Iguales</div>
+                                <div style={{ fontSize:'0.75rem', color:'#5f6368' }}>Total mesa: {formatColones(totalMesa)}</div>
+                            </div>
+                            {/* Selector N personas */}
+                            <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:'20px', marginBottom:'12px', background:'#f8f9fa', padding:'14px', borderRadius:'10px' }}>
+                                <button onClick={() => setSplitN(n => Math.max(2,n-1))}
+                                    style={{ width:'36px', height:'36px', borderRadius:'50%', border:'1px solid #dadce0', background:'white', cursor:'pointer', fontSize:'1.4rem', fontWeight:800 }}>−</button>
+                                <div style={{ textAlign:'center' }}>
+                                    <div style={{ fontSize:'2.5rem', fontWeight:800, color:'#1a73e8', lineHeight:1 }}>{splitN}</div>
+                                    <div style={{ fontSize:'0.75rem', color:'#5f6368', fontWeight:600 }}>personas</div>
+                                </div>
+                                <button onClick={() => setSplitN(n => n+1)}
+                                    style={{ width:'36px', height:'36px', borderRadius:'50%', border:'none', background:'#e8f0fe', cursor:'pointer', fontSize:'1.4rem', fontWeight:800, color:'#1a73e8' }}>+</button>
+                            </div>
+                            {/* Monto por persona */}
+                            <div style={{ background:'linear-gradient(135deg,#e8f0fe,#f3e8ff)', borderRadius:'10px', padding:'14px', textAlign:'center', marginBottom:'12px' }}>
+                                <div style={{ fontSize:'0.75rem', color:'#5f6368', fontWeight:700, textTransform:'uppercase', marginBottom:'4px' }}>Cada persona paga</div>
+                                <div style={{ fontSize:'2rem', fontWeight:800, color:'#7c3aed' }}>{formatColones(parte)}</div>
+                                <div style={{ fontSize:'0.75rem', color:'#80868b', marginTop:'4px' }}>incl. 10% servicio</div>
+                            </div>
+                            {/* Modo de pago */}
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:'8px', marginBottom:'8px' }}>
+                                {(['Efectivo','Tarjeta','Sinpe'] as const).map(m => (
+                                    <button key={m} onClick={() => { setPaymentMethod(m); if(m!=='Efectivo') setAmountReceived(parte.toString()); else setAmountReceived(''); }}
+                                        style={{ flex:'1 1 80px', padding:'8px', borderRadius:'8px', fontSize:'0.8rem', fontWeight:600, border:'1px solid', cursor:'pointer', minHeight:'44px',
+                                            ...(paymentMethod===m?{backgroundColor:'#e6f4ea',color:'#137333',borderColor:'#25d366'}:{backgroundColor:'#f8f9fa',color:'#5f6368',borderColor:'#dadce0'}) }}
+                                    >{m}</button>
+                                ))}
+                            </div>
+                            {paymentMethod==='Efectivo' && (
+                                <div style={{ display:'flex', gap:'10px', marginBottom:'8px', alignItems:'center' }}>
+                                    <input type="number" placeholder={`Paga con (mínimo ${parte})`} min="0" value={amountReceived}
+                                        onChange={e => setAmountReceived(e.target.value)}
+                                        style={{ flex:1, padding:'10px', fontSize:'1rem', fontWeight:700, border:'2px solid #dadce0', borderRadius:'8px' }} />
+                                    {Number(amountReceived)>parte && (
+                                        <div style={{ background:'#f8fbfc', padding:'10px', borderRadius:'8px', border:'1px solid #e1f5fe', textAlign:'center' }}>
+                                            <div style={{ fontSize:'0.65rem', color:'#5f6368', fontWeight:600 }}>VUELTO</div>
+                                            <div style={{ fontSize:'1.2rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-parte))}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                            {/* Cobrar parte: registra un partial-close con recibido=parte */}
+                            <button
+                                disabled={closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu)||(paymentMethod==='Efectivo'&&Number(amountReceived)<parte)}
+                                onClick={async (e) => {
+                                    setAmountReceived(parte.toString());
+                                    await closeTableGroup(e, selectedGroup, paymentMethod, parte, selectedPaymentItems);
+                                }}
+                                style={{ width:'100%', padding:'14px', background:'linear-gradient(135deg,#a855f7,#7c3aed)', color:'white', border:'none', borderRadius:'8px', fontSize:'0.9rem', fontWeight:800, textTransform:'uppercase', cursor:'pointer', boxShadow:'0 4px 12px rgba(124,58,237,0.3)' }}>
+                                {closing===(selectedGroup.mesa||selectedGroup.ordenes[0].orden_nu)?'PROCESANDO...': `COBRAR 1 DE ${splitN}: ${formatColones(parte)}`}
+                            </button>
+                        </>
+                        );
+                    })()}
+
                     </div>
                 </div>
             )}
@@ -921,6 +1265,89 @@ export default function AdminPortal() {
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
                 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
             `}} />
+            {/* Reassign Item Modal */}
+            {reassignModal && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px', fontFamily: 'Roboto, sans-serif'
+                }} onClick={() => { setReassignModal(null); setReassignTarget(''); }}>
+                    <div style={{
+                        backgroundColor: 'white', borderRadius: '16px', padding: '24px', width: '100%', maxWidth: '400px',
+                        boxShadow: '0 10px 25px rgba(0,0,0,0.2)', maxHeight: '90vh', display: 'flex', flexDirection: 'column'
+                    }} onClick={e => e.stopPropagation()}>
+                        
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+                            <div style={{ width: 40, height: 40, background: '#e8f0fe', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+                            </div>
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#202124' }}>Gestionar Ítem</h3>
+                                <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>
+                                    {reassignModal.item.CANTIDAD}x {reassignModal.item.ARTICULO} ({formatColones(reassignModal.item.TOTAL)})
+                                </p>
+                            </div>
+                        </div>
+
+                        <div style={{ flex: 1, overflowY: 'auto', marginBottom: '16px' }}>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#5f6368', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                Reasignar a Otra Persona (Misma Mesa)
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '16px' }}>
+                                {selectedGroup?.ordenes.filter(o => o.orden_nu !== reassignModal.item.Orden_Nu).map(o => (
+                                    <button key={o.orden_nu} 
+                                        onClick={() => setReassignTarget(o.orden_nu)}
+                                        style={{ 
+                                            padding: '12px', textAlign: 'left', borderRadius: '8px', cursor: 'pointer',
+                                            border: reassignTarget === o.orden_nu ? '2px solid #1a73e8' : '1px solid #dadce0',
+                                            background: reassignTarget === o.orden_nu ? '#e8f0fe' : 'white',
+                                            color: '#202124', fontWeight: 600, fontSize: '0.9rem'
+                                    }}>
+                                        👤 {stripMesaPrefix(o.cliente) || '(sin nombre)'} <span style={{color: '#80868b', fontSize: '0.8rem', fontWeight: 400}}>#{o.orden_nu}</span>
+                                    </button>
+                                ))}
+                                {selectedGroup?.ordenes.filter(o => o.orden_nu !== reassignModal.item.Orden_Nu).length === 0 && (
+                                    <div style={{ fontSize: '0.85rem', color: '#80868b', fontStyle: 'italic', padding: '8px' }}>No hay otras personas en esta mesa.</div>
+                                )}
+                            </div>
+
+                            <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#5f6368', textTransform: 'uppercase', marginBottom: '8px' }}>
+                                Transferir a Otra Mesa Activa
+                            </div>
+                            <select 
+                                value={reassignTarget}
+                                onChange={e => setReassignTarget(e.target.value)}
+                                style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #dadce0', fontSize: '0.95rem', background: 'white' }}
+                            >
+                                <option value="" disabled>Seleccionar mesa destino...</option>
+                                {mesaGroups.filter(mg => mg.ordenes[0].orden_nu !== selectedGroup?.ordenes[0].orden_nu).map(mg => (
+                                    <optgroup key={mg.ordenes[0].orden_nu} label={mg.mesa ? `Mesa ${mg.mesa}` : 'Para Llevar'}>
+                                        {mg.ordenes.map(o => (
+                                            <option key={o.orden_nu} value={o.orden_nu}>
+                                                {mg.mesa ? `Mesa ${mg.mesa}` : ''} {stripMesaPrefix(o.cliente)} (#{o.orden_nu})
+                                            </option>
+                                        ))}
+                                    </optgroup>
+                                ))}
+                            </select>
+                        </div>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button onClick={() => { setReassignModal(null); setReassignTarget(''); }} style={{ flex: 1, padding: '12px', background: 'white', border: '1px solid #dadce0', borderRadius: '8px', fontWeight: 600, color: '#5f6368', cursor: 'pointer' }}>Cancelar</button>
+                                <button onClick={submitReassignItem} disabled={!reassignTarget || reassigning} style={{ flex: 1, padding: '12px', background: reassignTarget ? '#1a73e8' : '#e0e0e0', border: 'none', borderRadius: '8px', fontWeight: 700, color: reassignTarget ? 'white' : '#9aa0a6', cursor: reassignTarget ? 'pointer' : 'default' }}>
+                                    {reassigning ? 'Moviendo...' : 'Confirmar Mover'}
+                                </button>
+                            </div>
+                            <button onClick={() => { 
+                                setReassignModal(null); 
+                                deleteItem(reassignModal.item.ID, reassignModal.item.ARTICULO); 
+                            }} style={{ width: '100%', padding: '12px', background: '#fff', border: '1px solid #fce8e6', borderRadius: '8px', fontWeight: 600, color: '#d93025', cursor: 'pointer' }}>
+                                🗑 Anular Definitivamente
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

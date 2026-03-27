@@ -61,10 +61,27 @@ export async function POST(request: Request) {
                         [newOrdenNu, Tipo, (Nombre_Cliente || 'Mesa') + ' (Dividido)', Mesa, forma_pago || null, recibido || null]
                     );
 
-                    const placeholders = item_ids.map((_, i) => `$${i + 2}`).join(',');
+                    const placeholders = item_ids.map((_: string, i: number) => `$${i + 2}`).join(',');
                     await client.query(
                         `UPDATE "PEDIDOS" SET "Orden_Nu" = $1 WHERE "ID" IN (${placeholders})`,
                         [newOrdenNu, ...item_ids]
+                    );
+
+                    // Recalculate total for the new split ticket
+                    await client.query(
+                        `UPDATE "CLIENTES" SET "Total" = COALESCE(
+                            (SELECT SUM("TOTAL") * 1.1 FROM "PEDIDOS" WHERE "Orden_Nu" = $1), 0
+                        ) WHERE "Orden_Nu" = $1`,
+                        [newOrdenNu]
+                    );
+
+                    // Recalculate total for the original order(s) that lost items
+                    const originalOrden = itemRes.rows[0].Orden_Nu;
+                    await client.query(
+                        `UPDATE "CLIENTES" SET "Total" = COALESCE(
+                            (SELECT SUM("TOTAL") * 1.1 FROM "PEDIDOS" WHERE "Orden_Nu" = $1), 0
+                        ) WHERE "Orden_Nu" = $1`,
+                        [originalOrden]
                     );
 
                     await client.query('COMMIT');

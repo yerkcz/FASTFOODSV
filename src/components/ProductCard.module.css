@@ -89,7 +89,7 @@
     align-items: center;
     margin-top: auto;
     gap: 6px;
-    flex-wrap: nowrap;
+    flex-wrap: wrap;        /* allow wrap so price is never hidden */
     min-height: 36px;
 }
 
@@ -97,11 +97,9 @@
     font-size: 0.92rem;
     font-weight: 800;
     color: #e8990a;
-    white-space: nowrap;
-    flex-shrink: 1;
+    white-space: nowrap;        /* keep on one line when space allows */
+    flex-shrink: 0;             /* never let price compress */
     min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
 }
 
 /* Quantity controls area on the card */
@@ -181,7 +179,7 @@
     flex-shrink: 0;
 }
 
-/* Very small phones — compact layout */
+/* Very small phones — compact layout, keep price readable */
 @media (max-width: 360px) {
     .card {
         padding: 10px;
@@ -193,7 +191,14 @@
     }
 
     .price {
-        font-size: 0.84rem;
+        font-size: 0.88rem;       /* slightly bigger than before so it stays legible */
+        flex-shrink: 0;           /* still must not compress */
+    }
+
+    /* When qty controls are visible, allow bottom to wrap so price gets a full row */
+    .bottom {
+        flex-wrap: wrap;
+        gap: 4px;
     }
 
     .addBtn,

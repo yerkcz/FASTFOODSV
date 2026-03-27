@@ -42,7 +42,7 @@ export default function RootLayout({
         />
       </head>
       <body className={inter.className}>
-        <div style={{ paddingBottom: '70px' /* Spacer for mobile navbar */, paddingTop: '0px' }}>
+        <div style={{ paddingTop: '0px' }}>
           {children}
         </div>
         <Navigation />

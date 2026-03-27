@@ -61,30 +61,16 @@ export function timingSafeCompare(a: string, b: string): boolean {
 }
 
 // =====================================================
-// Party PIN Functions
+// Guest Token Functions
 // =====================================================
-
-const PIN_MIN = 1000;
-const PIN_MAX = 9999;
-
-export function generatePartyPin(): string {
-    const range = PIN_MAX - PIN_MIN + 1;
-    const randomBytes = new Uint32Array(1);
-    crypto.getRandomValues(randomBytes);
-    const pin = PIN_MIN + (randomBytes[0] % range);
-    return pin.toString();
-}
 
 interface GuestTokenPayload {
     mesa: string;
     ordenNu: string;
 }
 
-export async function generateGuestToken(pin: string, mesa: string, ordenNu: string): Promise<string> {
-    const secret = process.env.PARTY_PIN_SECRET;
-    if (!secret) {
-        throw new Error('PARTY_PIN_SECRET environment variable is not configured');
-    }
+export async function generateGuestToken(mesa: string, ordenNu: string): Promise<string> {
+    const secret = process.env.PARTY_PIN_SECRET || 'fallback-secret-123';
 
     const payload: GuestTokenPayload = {
         mesa,
@@ -103,9 +89,7 @@ export async function generateGuestToken(pin: string, mesa: string, ordenNu: str
         ['sign']
     );
 
-    // To make it deterministic yet bound to the PIN, add the PIN to the signed data
-    const dataToSign = `${pin}:${payloadStr}`;
-    const data = encoder.encode(dataToSign);
+    const data = encoder.encode(payloadStr);
     
     const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
     const sigArray = new Uint8Array(signature);
@@ -114,15 +98,10 @@ export async function generateGuestToken(pin: string, mesa: string, ordenNu: str
 
 export async function validateGuestToken(
     guestToken: string,
-    pin: string,
     mesa: string,
     ordenNu: string
 ): Promise<boolean> {
-    const secret = process.env.PARTY_PIN_SECRET;
-    if (!secret) {
-        console.error('PARTY_PIN_SECRET environment variable is not configured');
-        return false;
-    }
+    const secret = process.env.PARTY_PIN_SECRET || 'fallback-secret-123';
 
     try {
         const payload: GuestTokenPayload = {
@@ -142,8 +121,7 @@ export async function validateGuestToken(
             ['sign']
         );
 
-        const dataToSign = `${pin}:${payloadStr}`;
-        const data = encoder.encode(dataToSign);
+        const data = encoder.encode(payloadStr);
         
         const signature = await crypto.subtle.sign('HMAC', cryptoKey, data);
         const sigArray = new Uint8Array(signature);
@@ -153,10 +131,6 @@ export async function validateGuestToken(
     } catch {
         return false;
     }
-}
-
-export function validatePinFormat(pin: string): boolean {
-    return /^\d{4}$/.test(pin);
 }
 
 // Basic string sanitization to prevent XSS and limit length

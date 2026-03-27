@@ -50,6 +50,11 @@ export default function POSPage() {
       const nombreParam = params.get("nombre");
       const waiterParam = params.get("waiter_mode");
       
+      if (!mesaParam && waiterParam !== "true") {
+        window.location.replace('/inicio');
+        return;
+      }
+
       if (waiterParam === "true") {
         setIsWaiterMode(true);
       }
@@ -60,10 +65,13 @@ export default function POSPage() {
       } else if (waiterParam === "true") {
         setMesaName("Mesa Principal"); // Waiter mode fallback
       }
-      // If no mesa param and not waiter mode, mesaName stays as "Mesa --" → shows QR prompt
 
       if (nombreParam) {
         setCliente(nombreParam);
+        localStorage.setItem(`hideaway_name`, nombreParam);
+      } else {
+        const savedName = localStorage.getItem(`hideaway_name`);
+        if (savedName) setCliente(savedName);
       }
     }
   }, []);
@@ -78,20 +86,13 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
 
-  // Table lock states
-  const [isTableOccupied, setIsTableOccupied] = useState<boolean | null>(null); // null means checking
+  const [isTableOccupied, setIsTableOccupied] = useState<boolean | null>(null);
   const [isCheckingTable, setIsCheckingTable] = useState(true);
   const [isOwner, setIsOwner] = useState(false);
   const [isGuest, setIsGuest] = useState(false);
   const [existingOrdenNu, setExistingOrdenNu] = useState<string | null>(null);
-  const [tablePin, setTablePin] = useState<string | null>(null);
-
-  // PIN input states
-  const [pinInput, setPinInput] = useState(['', '', '', '']);
-  const [pinError, setPinError] = useState('');
-  const [isJoiningTable, setIsJoiningTable] = useState(false);
-  const [pinCopied, setPinCopied] = useState(false);
-
+  const [isBlocked, setIsBlocked] = useState(false);
+  
   // Order info — mesa is fixed
   const [cliente, setCliente] = useState("");
 
@@ -209,7 +210,7 @@ export default function POSPage() {
           setIsOwner(data.isOwner || false);
           setIsGuest(data.isGuest || false);
           setExistingOrdenNu(data.orden_nu || null);
-          setTablePin(data.table_pin || null);
+          setIsBlocked(data.isBlocked || false);
 
           // Clean up tokens if table is no longer occupied
           if (!data.isOccupied) {
@@ -363,76 +364,56 @@ export default function POSPage() {
     );
   }, []);
 
-  const handlePinChange = (index: number, value: string) => {
-    if (!/^\d*$/.test(value)) return;
-    
-    const newPin = [...pinInput];
-    newPin[index] = value.slice(-1);
-    setPinInput(newPin);
-    setPinError('');
+  // Waiter Add Modal State
+  const [waiterModal, setWaiterModal] = useState<Product | null>(null);
+  const [waiterQty, setWaiterQty] = useState(1);
+  const [waiterNota, setWaiterNota] = useState("");
 
-    // Auto-focus next input
-    if (value && index < 3) {
-      const nextInput = document.getElementById(`pin-digit-${index + 1}`);
-      nextInput?.focus();
-    }
-
-    // Auto-submit when 4 digits entered
-    if (newPin.every(d => d !== '') && newPin.join('').length === 4) {
-      setTimeout(() => handlePinSubmit(newPin.join('')), 100);
-    }
-  };
-
-  const handlePinKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !pinInput[index] && index > 0) {
-      const prevInput = document.getElementById(`pin-digit-${index - 1}`);
-      prevInput?.focus();
-    }
-  };
-
-  const handlePinSubmit = async (pin: string) => {
-    setIsJoiningTable(true);
-    setPinError('');
-
-    try {
-      const res = await fetch("/api/table-join", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY,
-        },
-        body: JSON.stringify({ mesa: mesaName, pin }),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        setPinError(data.error || 'PIN incorrecto');
-        setPinInput(['', '', '', '']);
-        document.getElementById('pin-digit-0')?.focus();
-        return;
+  const handleWaiterAdd = () => {
+    if (!waiterModal) return;
+    setCart(prev => {
+      const existingIdx = prev.findIndex(i => i.id === waiterModal.id && (i.notas || "") === waiterNota);
+      if (existingIdx >= 0) {
+        const newCart = [...prev];
+        newCart[existingIdx].quantity += waiterQty;
+        return newCart;
+      } else {
+        return [...prev, {
+          id: waiterModal.id,
+          name: waiterModal.name,
+          price: waiterModal.price,
+          quantity: waiterQty,
+          category: waiterModal.category,
+          notas: waiterNota
+        }];
       }
-
-      // Success - save guest token
-      localStorage.setItem(`hideaway_guest_token_${mesaName}`, data.guest_token);
-      setIsGuest(true);
-      setExistingOrdenNu(data.orden_nu);
-      setPinInput(['', '', '', '']);
-    } catch (error) {
-      console.error("Error joining table:", error);
-      setPinError('Error al conectarse. Intenta de nuevo.');
-    } finally {
-      setIsJoiningTable(false);
-    }
+    });
+    setWaiterModal(null);
+    setWaiterQty(1);
+    setWaiterNota("");
   };
 
-  const handleCopyPin = () => {
-    if (tablePin) {
-      navigator.clipboard.writeText(tablePin).then(() => {
-        setPinCopied(true);
-        setTimeout(() => setPinCopied(false), 2000);
+
+  const [isUnlocking, setIsUnlocking] = useState(false);
+  const handleOwnerUnlock = async () => {
+    setIsUnlocking(true);
+    try {
+      const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
+      const res = await fetch("/api/client/unlock-table", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+        body: JSON.stringify({ mesa: mesaName, session_token: savedToken })
       });
+      if (res.ok) {
+        alert("¡Mesa desbloqueada! Tu invitado tiene 5 minutos para escanear el código QR y unirse a la orden.");
+      } else {
+        alert("No se pudo desbloquear la mesa. Verifica con el mesero.");
+      }
+    } catch(e) {
+      console.error(e);
+      alert("Error de conexión al intentar desbloquear la mesa.");
     }
+    setIsUnlocking(false);
   };
 
   const total = useMemo(
@@ -487,10 +468,7 @@ export default function POSPage() {
         setExistingOrdenNu(ordenNu);
       }
 
-      // Save the PIN if this is a new order (for owner to share)
-      if (data.table_pin) {
-        setTablePin(data.table_pin);
-      }
+
 
       // Generate PDF only for new orders (not when adding to existing)
       if (!data.added_to_existing) {
@@ -531,17 +509,14 @@ export default function POSPage() {
     }
   };
 
-  // No mesa parameter provided — show QR prompt
+  // No mesa parameter provided — show redirecting prompt
   if (mesaName === "Mesa --") {
     return (
       <div className="pos-layout" style={{ justifyContent: "center", alignItems: "center", display: "flex", minHeight: "100dvh" }}>
-        <div style={{ textAlign: "center", padding: "40px 20px", maxWidth: "400px" }}>
-          <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: "20px" }}>
-            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="3" height="3" /><line x1="21" y1="14" x2="21" y2="21" /><line x1="14" y1="21" x2="21" y2="21" />
-          </svg>
-          <h2 style={{ fontSize: "1.5rem", fontWeight: 700, color: "#1a2e1a", marginBottom: "12px" }}>¡Bienvenido a Hideaway!</h2>
-          <p style={{ fontSize: "1rem", color: "#5f6368", lineHeight: 1.6 }}>
-            Escanea el código QR en tu mesa para acceder al menú y hacer tu pedido directamente desde tu celular.
+        <div style={{ textAlign: "center", padding: "40px 20px" }}>
+          <div className="loading-spinner" style={{ margin: "0 auto", marginBottom: "16px" }} />
+          <p style={{ fontSize: "1rem", color: "#5f6368" }}>
+            Redirigiendo a Inicio...
           </p>
         </div>
       </div>
@@ -559,6 +534,7 @@ export default function POSPage() {
     );
   }
 
+  // Mesa Bloqueada UI
   if (isTableOccupied && !isOwner && !isGuest && !isWaiterMode) {
     return (
       <div className="pos-layout">
@@ -566,14 +542,7 @@ export default function POSPage() {
           {/* ===== HEADER ===== */}
           <div className="header" style={{ flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Image
-                src="/logoHide.png"
-                alt="Hideaway"
-                width={40}
-                height={40}
-                className="header-logo"
-                priority
-              />
+              <Image src="/logoHide.png" alt="Hideaway" width={40} height={40} className="header-logo" priority />
               <div>
                 <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>Hideaway</h1>
                 <p style={{ fontSize: "0.68rem", color: "rgba(238,247,240,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
@@ -586,53 +555,19 @@ export default function POSPage() {
             </div>
           </div>
 
-          {/* ===== PIN ENTRY SCREEN ===== */}
+          {/* ===== BLOCKED SCREEN ===== */}
           <div className="pin-screen">
-            <svg className="pin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg className="pin-icon" viewBox="0 0 24 24" fill="none" stroke="#e01b24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
               <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
             </svg>
-            <h2 className="pin-title">{mesaName} está ocupada</h2>
+            <h2 className="pin-title" style={{color: "#e01b24"}}>{mesaName} está protegida</h2>
             <p className="pin-subtitle">
-              Ingresa el PIN de 4 dígitos que te dio el anfitrión para sumarte a la orden
+              Esta mesa ya tiene una orden activa y se encuentra bloqueada por seguridad. 
             </p>
-
-            <div className="pin-input-container">
-              {[0, 1, 2, 3].map((i) => (
-                <input
-                  key={i}
-                  id={`pin-digit-${i}`}
-                  type="tel"
-                  inputMode="numeric"
-                  maxLength={1}
-                  className={`pin-digit ${pinInput[i] ? 'filled' : ''}`}
-                  value={pinInput[i]}
-                  onChange={(e) => handlePinChange(i, e.target.value)}
-                  onKeyDown={(e) => handlePinKeyDown(i, e)}
-                  disabled={isJoiningTable}
-                  autoFocus={i === 0}
-                />
-              ))}
-            </div>
-
-            {pinError && (
-              <p className="pin-error">{pinError}</p>
-            )}
-
-            <button
-              className="pin-submit-btn"
-              onClick={() => handlePinSubmit(pinInput.join(''))}
-              disabled={isJoiningTable || pinInput.join('').length !== 4}
-            >
-              {isJoiningTable ? 'Conectando...' : 'Unirme a la orden'}
-            </button>
-
-            <div className="pin-hint">
-              <p>¿No tienes el PIN?</p>
-              <button onClick={() => setPinError('Solicita asistencia a tu mesero')}>
-                Llamar a un mesero
-              </button>
-            </div>
+            <p className="pin-hint" style={{marginTop: "20px"}}>
+              Si eres parte de esta mesa, por favor <strong>solicita al Mesero</strong> que te habilite el acceso temporalmente, o pídele a quien abrió la orden que abra la mesa desde su pantalla.
+            </p>
           </div>
         </div>
       </div>
@@ -729,17 +664,18 @@ export default function POSPage() {
                 </div>
               </div>
               
-              {isOwner && tablePin && (
+              {isOwner && (
                 <div className="pin-display">
                   <div style={{ flex: 1 }}>
-                    <div className="pin-display-label">PIN para invitados</div>
-                    <div className="pin-display-value">{tablePin}</div>
+                    <div className="pin-display-label">¿Llegó otro invitado?</div>
+                    <div className="pin-display-value" style={{fontSize: "0.8rem", marginTop: "4px"}}>Pídele escanear este QR</div>
                   </div>
                   <button 
-                    className={`pin-copy-btn ${pinCopied ? 'copied' : ''}`}
-                    onClick={handleCopyPin}
+                    className={`pin-copy-btn`}
+                    onClick={handleOwnerUnlock}
+                    disabled={isUnlocking}
                   >
-                    {pinCopied ? '✓ Copiado' : 'Copiar'}
+                    {isUnlocking ? 'Abriendo...' : 'Liberar Mesa'}
                   </button>
                 </div>
               )}
@@ -769,6 +705,8 @@ export default function POSPage() {
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
                 maxLength={40}
+                disabled={!!existingOrdenNu}
+                style={{ opacity: existingOrdenNu ? 0.7 : 1 }}
               />
             </div>
           </div>
@@ -790,83 +728,118 @@ export default function POSPage() {
             />
           </div>
 
-          {/* ===== CATEGORIES ===== */}
-          <div className="categories">
-            {dynamicCategories.map((cat) => (
-              <button
-                key={cat}
-                className={`category-pill ${activeCategory === cat ? "active" : ""}`}
-                onClick={() => setActiveCategory(cat)}
-                id={`cat-${cat.replace(/\s/g, "-")}`}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
+          {/* ===== CATEGORIES (Hidden in Waiter Mode) ===== */}
+          {!isWaiterMode && (
+            <div className="categories">
+              {dynamicCategories.map((cat) => (
+                <button
+                  key={cat}
+                  className={`category-pill ${activeCategory === cat ? "active" : ""}`}
+                  onClick={() => setActiveCategory(cat)}
+                  id={`cat-${cat.replace(/\s/g, "-")}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          )}
 
-          {/* ===== PRODUCTS GRID ===== */}
-          <div className="products-grid">
-            {isLoading ? (
-              <div className="empty-state">
-                <div className="loading-spinner" />
-                <p className="loading-text">Cargando menú...</p>
-              </div>
-            ) : filtered.length === 0 ? (
-              <div className="empty-state">
-                <p>No se encontraron artículos</p>
-                <p>Intenta cambiar el filtro o la búsqueda</p>
-              </div>
-            ) : (
-              filtered.map((product) => {
-                const qty = cartQtyMap.get(product.id) || 0;
-                return (
-                  <div
-                    key={product.id}
-                    className={`${cardStyles.card} ${qty > 0 ? cardStyles.cardActive : ""}`}
-                    onClick={() => addToCart(product)}
-                    id={`product-${product.id}`}
+          {/* ===== PRODUCTS DISPLAY ===== */}
+          {isWaiterMode ? (
+            // WAITER MODE VIEW: Simple List, Search Driven
+            <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {search.trim() === "" ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8fa898' }}>
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '16px', opacity: 0.5 }}>
+                    <circle cx="11" cy="11" r="8"></circle>
+                    <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                  </svg>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 500, color: '#2d5a3f' }}>Buscador Activo</p>
+                  <p style={{ fontSize: '0.9rem' }}>Escriba el nombre del artículo para agregarlo a la comanda.</p>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '20px', color: '#d93025' }}>No hay coincidencias.</div>
+              ) : (
+                filtered.map((product) => (
+                  <div 
+                    key={product.id} 
+                    onClick={() => {
+                        setWaiterModal(product);
+                        setWaiterQty(1);
+                        setWaiterNota("");
+                    }}
+                    style={{ 
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                        padding: '16px', background: 'white', border: '1px solid #dce8e0', 
+                        borderRadius: '12px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                    }}
                   >
-                    <span className={cardStyles.category}>
-                      {product.category}
-                    </span>
-                    <span className={cardStyles.name}>{product.name}</span>
-                    <div className={cardStyles.bottom}>
-                      <span className={cardStyles.price}>
-                        {formatColones(product.price)}
-                      </span>
-                      <div className={cardStyles.cardControls}>
-                        {qty > 0 && (
-                          <>
-                            <button
-                              className={cardStyles.removeBtn}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                decrementFromCart(product.id);
-                              }}
-                              aria-label={`Quitar ${product.name}`}
-                            >
-                              −
-                            </button>
-                            <span className={cardStyles.qtyBadge}>{qty}</span>
-                          </>
-                        )}
-                        <button
-                          className={cardStyles.addBtn}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            addToCart(product);
-                          }}
-                          aria-label={`Agregar ${product.name}`}
-                        >
-                          +
-                        </button>
-                      </div>
+                    <div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1a2e23' }}>{product.name}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#8fa898', marginTop: '2px' }}>{product.category}</div>
+                    </div>
+                    <div style={{ fontSize: '1rem', fontWeight: 600, color: '#2d5a3f' }}>
+                      {formatColones(product.price)}
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          ) : (
+            // CUSTOMER MODE VIEW: Product Grid
+            <div className="products-grid">
+              {isLoading ? (
+                <div className="empty-state">
+                  <div className="loading-spinner" />
+                  <p className="loading-text">Cargando menú...</p>
+                </div>
+              ) : filtered.length === 0 ? (
+                <div className="empty-state">
+                  <p>No se encontraron artículos</p>
+                  <p>Intenta cambiar el filtro o la búsqueda</p>
+                </div>
+              ) : (
+                filtered.map((product) => {
+                  const qty = cartQtyMap.get(product.id) || 0;
+                  return (
+                    <div
+                      key={product.id}
+                      className={`${cardStyles.card} ${qty > 0 ? cardStyles.cardActive : ""}`}
+                      onClick={() => addToCart(product)}
+                      id={`product-${product.id}`}
+                    >
+                      <span className={cardStyles.category}>{product.category}</span>
+                      <span className={cardStyles.name}>{product.name}</span>
+                      <div className={cardStyles.bottom}>
+                        <span className={cardStyles.price}>{formatColones(product.price)}</span>
+                        <div className={cardStyles.cardControls}>
+                          {qty > 0 && (
+                            <>
+                              <button
+                                className={cardStyles.removeBtn}
+                                onClick={(e) => { e.stopPropagation(); decrementFromCart(product.id); }}
+                                aria-label={`Quitar ${product.name}`}
+                              >
+                                −
+                              </button>
+                              <span className={cardStyles.qtyBadge}>{qty}</span>
+                            </>
+                          )}
+                          <button
+                            className={cardStyles.addBtn}
+                            onClick={(e) => { e.stopPropagation(); addToCart(product); }}
+                            aria-label={`Agregar ${product.name}`}
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -965,7 +938,7 @@ export default function POSPage() {
                       <div style={{ padding: '4px 0 0 0' }}>
                         <input
                           type="text"
-                          placeholder={`Notas: ej. sin cebolla`}
+                          placeholder={`Notas: ej. sin hielo, extra limón`}
                           value={item.notas || ""}
                           onChange={(e) => updateItemNote(item.id, e.target.value)}
                           style={{
@@ -1082,6 +1055,53 @@ export default function POSPage() {
           <p className="order-success-sub">
             {isOwner ? "Los artículos se sumaron a tu cuenta." : `Tu pedido #${orderSuccess} ha sido enviado a la cocina.`}
           </p>
+        </div>
+      )}
+      {/* ===== WAITER ADD ITEM MODAL ===== */}
+      {waiterModal && (
+        <div className="modal-overlay" onClick={() => setWaiterModal(null)}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ padding: '24px' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', color: '#1a2e23' }}>{waiterModal.name}</h3>
+            <p style={{ margin: '0 0 20px 0', color: '#2d5a3f', fontWeight: 600 }}>{formatColones(waiterModal.price)}</p>
+            
+            <div style={{ marginBottom: '20px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: '#5f6368', textTransform: 'uppercase', fontWeight: 700 }}>Cantidad</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f7faf8', padding: '8px', borderRadius: '12px', border: '1px solid #dce8e0', width: 'fit-content' }}>
+                <button 
+                  onClick={() => setWaiterQty(Math.max(1, waiterQty - 1))}
+                  style={{ width: '40px', height: '40px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer' }}
+                >−</button>
+                <span style={{ fontSize: '1.2rem', fontWeight: 800, minWidth: '24px', textAlign: 'center' }}>{waiterQty}</span>
+                <button 
+                  onClick={() => setWaiterQty(waiterQty + 1)}
+                  style={{ width: '40px', height: '40px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer' }}
+                >+</button>
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: '#5f6368', textTransform: 'uppercase', fontWeight: 700 }}>Notas (opcional)</label>
+              <input 
+                type="text" 
+                placeholder="Ej. Sin cebolla, extra salsa..."
+                value={waiterNota}
+                onChange={e => setWaiterNota(e.target.value)}
+                autoComplete="off"
+                style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #dce8e0', fontSize: '1rem', background: '#f7faf8', boxSizing: 'border-box' }}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button 
+                onClick={() => setWaiterModal(null)} 
+                style={{ flex: 1, padding: '14px', background: 'white', border: '1px solid #dce8e0', borderRadius: '8px', fontWeight: 700, color: '#5f6368', cursor: 'pointer' }}
+              >Cancelar</button>
+              <button 
+                onClick={handleWaiterAdd} 
+                style={{ flex: 2, padding: '14px', background: '#25d366', border: 'none', borderRadius: '8px', fontWeight: 700, color: 'white', cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 211, 102, 0.3)' }}
+              >Agregar Artículo →</button>
+            </div>
+          </div>
         </div>
       )}
     </>

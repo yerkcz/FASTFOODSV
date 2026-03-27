@@ -19,7 +19,7 @@ export default function InicioPortal() {
 
   const navButtons = [
     { href: "/mesas", label: "Mesas", icon: "M3 3h18v18H3zM3 9h18M9 21V9", color: "#f9ab00", bg: "#fdf6e3" },
-    { href: "/cocina", label: "Monitor Cocina", icon: "M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6", color: "#ea4335", bg: "#fce8e6" },
+    { href: "/cocina", label: "Monitor Cocina", icon: "M12 3c-1.2 5.4-6 6-6 12h12c0-6-4.8-6.6-6-12zM6 17h12M10 21v-4M14 21v-4", color: "#ea4335", bg: "#fce8e6" },
     { href: "/bebidas-frias", label: "Bebidas Frías", icon: "M8 2v4M12 2v4M6 6h12l-1 14H7L6 6z", color: "#1a73e8", bg: "#e8f0fe" },
     { href: "/bebidas-calientes", label: "Beb. Calientes", icon: "M17 8h1a4 4 0 0 1 0 8h-1M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V8zM6 2v3M10 2v3M14 2v3", color: "#e65100", bg: "#fff3e0" },
     { href: "/entregados", label: "Entregados", icon: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3", color: "#1e8e3e", bg: "#e6f4ea" },

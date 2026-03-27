@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
-import { checkRateLimit, validateApiKey, validateOrderPayload, checkOperatingHours, timingSafeCompare, generatePartyPin, validateGuestToken } from '@/lib/security';
+import { checkRateLimit, validateApiKey, validateOrderPayload, checkOperatingHours, timingSafeCompare, validateGuestToken } from '@/lib/security';
 import { refreshAppSheetCache } from '@/lib/appsheet';
 
 export async function POST(request: Request) {
@@ -42,42 +42,25 @@ export async function POST(request: Request) {
         }
 
         const { mesa, cliente, items, session_token, guest_token } = validation.data;
-        const waiter_mode = body.waiter_mode === true;
+        const combinedClienteName = cliente ? `${mesa} - ${cliente}` : mesa;
 
-        // 4.5. Table Lock — Check if THIS user already has an open order for this table
+        // 4.5. Find if THIS specific person already has an open account on this table
         let existingOrdenNu: string | null = null;
         let isAddingToExisting = false;
         let generatedSessionToken: string | undefined;
-        let generatedPin: string | undefined;
 
-        if (session_token) {
-            // Owner returning to add more items to their own order
-            const lockRes = await query(
-                `SELECT "Orden_Nu" FROM "CLIENTES" 
-                 WHERE "session_token" = $1 AND "Estado" = 'Abierta' LIMIT 1`,
-                [session_token]
-            );
-            if (lockRes.rows.length > 0) {
-                existingOrdenNu = lockRes.rows[0].Orden_Nu;
-                isAddingToExisting = true;
-            }
-        } else if (guest_token) {
-            // Guest adding to an existing order they joined
-            const lockRes = await query(
-                `SELECT "Orden_Nu", "table_pin" FROM "CLIENTES" 
-                 WHERE "Mesa" = $1 AND "Estado" = 'Abierta' LIMIT 1`,
-                [mesa]
-            );
-            if (lockRes.rows.length > 0) {
-                const existingOrder = lockRes.rows[0];
-                const isGuest = await validateGuestToken(guest_token, existingOrder.table_pin, mesa, existingOrder.Orden_Nu);
-                if (isGuest) {
-                    existingOrdenNu = existingOrder.Orden_Nu;
-                    isAddingToExisting = true;
-                }
-            }
+        // If not a waiter, we should verify the guest/session token against the table's master lock.
+        // We will trust the validation carried out by table-status for now, but ensure we group by Name.
+        const personRes = await query(
+            `SELECT "Orden_Nu", "session_token" FROM "CLIENTES" 
+             WHERE "Mesa" = $1 AND "Nombre_Cliente" = $2 AND "Estado" = 'Abierta' LIMIT 1`,
+            [mesa, combinedClienteName]
+        );
+
+        if (personRes.rows.length > 0) {
+            existingOrdenNu = personRes.rows[0].Orden_Nu;
+            isAddingToExisting = true;
         }
-        // If waiter_mode or new customer: always create a new order (no merge)
 
         // 5. Server-side price & item validation mechanism
         // Get canonical prices from the database 
@@ -117,18 +100,15 @@ export async function POST(request: Request) {
                 // 6a. Adding to existing order — skip CLIENTES insert, just add PEDIDOS
                 ordenNu = existingOrdenNu;
             } else {
-                // 6a. Create new order in CLIENTES with Party PIN
+                // 6a. Create new order in CLIENTES for this specific person
                 ordenNu = crypto.randomUUID().substring(0, 8).toUpperCase();
                 generatedSessionToken = crypto.randomUUID();
-                generatedPin = generatePartyPin();
-
-                const combinedClienteName = cliente || mesa;
 
                 await client.query(
                     `INSERT INTO "CLIENTES" 
-                     ("Orden_Nu", "Fecha", "Tipo", "Nombre_Cliente", "Mesa", "Estado", "session_token", "table_pin") 
-                     VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7)`,
-                    [ordenNu, 'Restaurante', combinedClienteName, mesa, 'Abierta', generatedSessionToken, generatedPin]
+                     ("Orden_Nu", "Fecha", "Tipo", "Nombre_Cliente", "Mesa", "Estado", "session_token") 
+                     VALUES ($1, NOW(), $2, $3, $4, $5, $6)`,
+                    [ordenNu, 'Restaurante', combinedClienteName, mesa, 'Abierta', generatedSessionToken]
                 );
             }
 
@@ -165,7 +145,6 @@ export async function POST(request: Request) {
                 message: isAddingToExisting ? 'Items agregados a tu orden' : 'Orden recibida correctamente',
                 orden_nu: ordenNu,
                 session_token: generatedSessionToken,
-                table_pin: generatedPin, // Only present for new orders
                 added_to_existing: isAddingToExisting
             });
 

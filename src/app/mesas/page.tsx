@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel, parseHora } from "@/lib/timeUtils";
 
@@ -32,6 +32,15 @@ function formatColones(amount: number): string {
     return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
 }
 
+/**
+ * Strip "Mesa " prefix from a cliente name to avoid "Mesa Mesa X" display bug.
+ * Happens when admin saves cliente = mesa number and display prepends "Mesa" again.
+ */
+function stripMesaPrefix(s: string | null | undefined): string {
+    if (!s) return '';
+    return s.replace(/^Mesa\s+/i, '').trim();
+}
+
 // Time utils imported from @/lib/timeUtils — formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel, parseHora
 
 export default function MesasPage() {
@@ -46,6 +55,9 @@ export default function MesasPage() {
     const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "Tarjeta" | "Sinpe">("Efectivo");
     const [amountReceived, setAmountReceived] = useState("");
     const [closing, setClosing] = useState(false);
+
+    // Polling ref for open order detail
+    const detailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const API_KEY = process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY || "";
 
@@ -82,6 +94,30 @@ export default function MesasPage() {
         } catch (err) { console.error(err); }
         finally { setLoadingDetails(false); }
     };
+
+    const refreshOrderDetails = useCallback(async (table: Table) => {
+        try {
+            const res = await fetch(`/api/admin/table-details?orden_nu=${table.orden_nu}`, {
+                headers: { "x-admin-key": "admin123" }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setOrderItems(data.items);
+            }
+        } catch (err) { }
+    }, []);
+
+    useEffect(() => {
+        if (detailPollRef.current) clearInterval(detailPollRef.current);
+        if (selectedOrder) {
+            detailPollRef.current = setInterval(() => {
+                refreshOrderDetails(selectedOrder);
+            }, 5000);
+        }
+        return () => {
+            if (detailPollRef.current) clearInterval(detailPollRef.current);
+        };
+    }, [selectedOrder, refreshOrderDetails]);
 
     const toggleListo = async (itemId: string) => {
         setMarkingListo(itemId);
@@ -147,7 +183,7 @@ export default function MesasPage() {
                     </div>
                     <div style={{ flex: 1 }}>
                         <div style={{ fontSize: '1.1rem', color: '#202124', fontWeight: 500 }}>
-                            {selectedOrder.mesa ? `Mesa ${selectedOrder.mesa}` : ''} {selectedOrder.cliente}
+                            {selectedOrder.mesa ? `Mesa ${stripMesaPrefix(selectedOrder.mesa)}` : ''}{selectedOrder.cliente && stripMesaPrefix(selectedOrder.cliente) ? ` — ${stripMesaPrefix(selectedOrder.cliente)}` : ''}
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>#{selectedOrder.orden_nu}</div>
                     </div>
@@ -158,11 +194,26 @@ export default function MesasPage() {
                     {/* Date & Status */}
                     <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '14px 16px', marginBottom: '12px', boxShadow: '0 1px 2px rgba(0,0,0,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div>
-                            <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>Fecha</div>
-                            <div style={{ fontSize: '0.95rem', color: '#202124' }}>{new Date(selectedOrder.fecha).toLocaleString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</div>
+                            <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>Apertura de Orden</div>
+                            <div style={{ fontSize: '0.95rem', color: '#202124', fontWeight: 600 }}>
+                                {new Date(selectedOrder.fecha).toLocaleString('es-CR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'America/Costa_Rica' })}
+                            </div>
                         </div>
-                        <div style={{ padding: '6px 14px', borderRadius: '20px', backgroundColor: '#e6f4ea', color: '#1e8e3e', fontSize: '0.85rem', fontWeight: 500 }}>
-                            Abierta
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                            {/* Live sync dot */}
+                            <div title="Actualizando en tiempo real" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#25d366', animation: 'pulse 2s ease-in-out infinite' }} />
+                            {/* Elapsed time badge colored by format rule */}
+                            <div style={{ 
+                                color: getTimeColor(selectedOrder.fecha), 
+                                fontWeight: 800, fontSize: '1rem', 
+                                background: getTimeBg(selectedOrder.fecha) !== 'transparent' ? getTimeBg(selectedOrder.fecha) : '#f8f9fa', 
+                                padding: '6px 12px', borderRadius: '16px',
+                                border: `1.5px solid ${getTimeColor(selectedOrder.fecha)}`,
+                                display: 'flex', alignItems: 'center', gap: '5px'
+                            }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                {getElapsedLabel(selectedOrder.fecha)}
+                            </div>
                         </div>
                     </div>
 
@@ -231,10 +282,10 @@ export default function MesasPage() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, color: '#202124', fontSize: '1.1rem', borderTop: '1px solid #e0e0e0', paddingTop: '6px', marginTop: '4px' }}><span>Total</span><span>{formatColones(totalFinal)}</span></div>
                     </div>
                     
-                    <div style={{ display: 'flex', gap: '6px', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' }}>
                         {(["Efectivo", "Tarjeta", "Sinpe"] as const).map(m => (
                             <button key={m} onClick={() => { setPaymentMethod(m); if (m !== 'Efectivo') setAmountReceived(String(totalFinal)); else setAmountReceived(''); }}
-                                style={{ flex: 1, padding: '8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', border: '1px solid', ...(paymentMethod === m ? { backgroundColor: '#e8f0fe', color: '#1a73e8', borderColor: '#1a73e8' } : { backgroundColor: 'white', color: '#5f6368', borderColor: '#dadce0' }) }}
+                                style={{ flex: '1 1 80px', padding: '8px', borderRadius: '4px', fontSize: '0.8rem', fontWeight: 500, cursor: 'pointer', border: '1px solid', minHeight: '44px', ...(paymentMethod === m ? { backgroundColor: '#e8f0fe', color: '#1a73e8', borderColor: '#1a73e8' } : { backgroundColor: 'white', color: '#5f6368', borderColor: '#dadce0' }) }}
                             >{m}</button>
                         ))}
                     </div>
@@ -290,12 +341,22 @@ export default function MesasPage() {
                                 <div style={{ padding: '14px 16px 14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ fontSize: '1rem', color: '#202124', fontWeight: 600 }}>
-                                            {t.mesa ? `Mesa ${t.mesa}` : ''} {t.cliente}
+                                            {t.mesa ? `Mesa ${stripMesaPrefix(t.mesa)}` : ''}{stripMesaPrefix(t.cliente) ? ` — ${stripMesaPrefix(t.cliente)}` : ''}
                                             {tBadge && <span style={{ marginLeft: '8px', fontSize: '0.68rem', color: tColor, fontWeight: 800 }}>{tBadge}</span>}
                                         </div>
-                                        <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '4px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                            <span>{formatTime(t.fecha)}</span>
-                                            <span style={{ color: tColor, fontWeight: 700 }}>{getElapsedLabel(t.fecha)}</span>
+                                        <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                            <span style={{ color: '#80868b' }}>{formatTime(t.fecha)}</span>
+                                            <span style={{ 
+                                                color: tColor, fontWeight: 700, 
+                                                background: tBg !== 'transparent' ? 'rgba(255,255,255,0.7)' : '#f8f9fa',
+                                                padding: '2px 8px', borderRadius: '10px',
+                                                border: `1px solid ${tColor}`,
+                                                fontSize: '0.8rem',
+                                                display: 'flex', alignItems: 'center', gap: '4px'
+                                            }}>
+                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                                {getElapsedLabel(t.fecha)}
+                                            </span>
                                         </div>
                                     </div>
                                     <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>

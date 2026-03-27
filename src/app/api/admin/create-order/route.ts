@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
-import { timingSafeCompare, generatePartyPin, validateGuestToken } from '@/lib/security';
 import { refreshAppSheetCache } from '@/lib/appsheet';
 
 export async function POST(request: Request) {
@@ -23,7 +22,10 @@ export async function POST(request: Request) {
         
         const tipoFinal = tipo === 'Llevar' ? 'Llevar' : 'Restaurante';
         const mesaValue = mesa || null; // Could be null for name-only orders
-        const clienteValue = cliente || mesa; // Fallback to mesa if no name
+        // For restaurant table orders: save null if no explicit name given (mesa field already captures the table).
+        // Strip any accidental 'Mesa ' prefix from the name to prevent 'Mesa Mesa X' display bug.
+        const rawCliente = (cliente || '').replace(/^Mesa\s+/i, '').trim();
+        const clienteValue = rawCliente || (tipoFinal === 'Llevar' ? mesa : null);
 
         // 2. Fetch Prices
         const itemNames = items.map((i: any) => i.name);
@@ -56,13 +58,12 @@ export async function POST(request: Request) {
             // Each admin order is always NEW (no auto-merge)
             ordenNu = crypto.randomUUID().substring(0, 8).toUpperCase();
             const sessionToken = crypto.randomUUID();
-            const pin = generatePartyPin();
 
             await client.query(
                 `INSERT INTO "CLIENTES" 
-                 ("Orden_Nu", "Fecha", "Tipo", "Nombre_Cliente", "Mesa", "Estado", "session_token", "table_pin") 
-                 VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7)`,
-                [ordenNu, tipoFinal, clienteValue, mesaValue, 'Abierta', sessionToken, pin]
+                 ("Orden_Nu", "Fecha", "Tipo", "Nombre_Cliente", "Mesa", "Estado", "session_token") 
+                 VALUES ($1, NOW(), $2, $3, $4, $5, $6)`,
+                [ordenNu, tipoFinal, clienteValue, mesaValue, 'Abierta', sessionToken]
             );
 
             for (const item of items) {
