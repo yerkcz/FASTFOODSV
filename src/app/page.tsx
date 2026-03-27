@@ -209,7 +209,7 @@ export default function POSPage() {
           setIsTableOccupied(data.isOccupied);
           setIsOwner(data.isOwner || false);
           setIsGuest(data.isGuest || false);
-          setExistingOrdenNu(data.orden_nu || null);
+          setExistingOrdenNu(data.isOwner ? data.orden_nu : null);
           setIsBlocked(data.isBlocked || false);
 
           // Clean up tokens if table is no longer occupied

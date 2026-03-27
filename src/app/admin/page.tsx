@@ -3,7 +3,10 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from 'next/link';
 import Image from "next/image";
+import dynamic from 'next/dynamic';
 import { formatTime, getElapsedMins, getTimeColor, getTimeBg, getUrgencyBadge, getElapsedLabel } from "@/lib/timeUtils";
+
+const AnalyticsDashboard = dynamic(() => import('@/components/analytics/AnalyticsDashboard'), { ssr: false });
 
 type MesaGroup = {
     mesa: string | null;
@@ -103,7 +106,7 @@ export default function AdminPortal() {
     const [reassigning, setReassigning] = useState(false);
 
     // Phase D: Admin Tabs & Closed Orders
-    const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja">("open");
+    const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja" | "stats">("open");
     const [closedOrders, setClosedOrders] = useState<any[]>([]);
     const [closedTotal, setClosedTotal] = useState(0);
     const [closedTip, setClosedTip] = useState(0);
@@ -454,6 +457,32 @@ export default function AdminPortal() {
         await closeTableGroup(e, selectedGroup, paymentMethod, Number(amountReceived) || checkoutSelectedTotal, selectedPaymentItems);
     };
 
+    const handleDownloadInvoice = async (ordenNu: string, clienteName: string, orderTotal: number) => {
+        try {
+            const res = await fetch(`/api/admin/table-details?orden_nu=${ordenNu}`, {
+                headers: { "x-admin-key": adminKey }
+            });
+            if (!res.ok) throw new Error("Error obteniendo detalles");
+            const data = await res.json();
+            
+            const formattedItems = data.items.map((i: any, index: number) => ({
+                id: i.ID || String(index),
+                name: i.ARTICULO,
+                price: i.PRECIO,
+                quantity: i.CANTIDAD,
+                category: "",
+                notas: i.NOTAS || undefined
+            }));
+            
+            const { generateInvoice } = await import('@/lib/generateInvoice');
+            const mesaValue = stripMesaPrefix(clienteName) ? "Restaurante" : "Llevar";
+            await generateInvoice(formattedItems, orderTotal, { mesa: mesaValue, cliente: clienteName }, ordenNu);
+        } catch (err) {
+            alert("No se pudo generar el PDF");
+        }
+    };
+
+
     // UI TopAppBar mimicking the home page
     const TopAppBar = ({ title, onSync }: { title: string, onSync?: () => void }) => (
         <header style={{ 
@@ -564,7 +593,7 @@ export default function AdminPortal() {
                 
                 {/* Admin Tabs */}
                 <div style={{ display: 'flex', gap: '0', backgroundColor: 'white', borderRadius: '12px', marginBottom: '20px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                    {[{key: 'open' as const, label: 'En Curso'}, {key: 'closed' as const, label: 'Cerradas'}, {key: 'caja' as const, label: 'Cierre'}].map(tab => (
+                    {[{key: 'open' as const, label: 'En Curso'}, {key: 'closed' as const, label: 'Cerradas'}, {key: 'caja' as const, label: 'Cierre'}, {key: 'stats' as const, label: 'Estadísticas'}].map(tab => (
                         <button key={tab.key} onClick={() => setAdminTab(tab.key)} style={{
                             flex: 1, padding: '14px 8px', fontSize: '0.85rem', fontWeight: 600, border: 'none', cursor: 'pointer',
                             borderBottom: adminTab === tab.key ? '3px solid #25d366' : '3px solid transparent',
@@ -694,8 +723,19 @@ export default function AdminPortal() {
                                                 <span style={{ background: '#f8f9fa', padding: '2px 6px', borderRadius: '4px', border: '1px solid #e0e0e0' }}>{order.forma_pago}</span>
                                             </div>
                                         </div>
-                                        <div style={{ fontSize: '1.125rem', fontWeight: 800, color: '#202124' }}>
-                                            {formatColones(order.total)}
+                                        <div style={{ textAlign: 'right' }}>
+                                            <div style={{ fontSize: '1.125rem', fontWeight: 800, color: '#202124' }}>
+                                                {formatColones(order.total)}
+                                            </div>
+                                            <button 
+                                                onClick={() => handleDownloadInvoice(order.orden_nu, order.cliente, order.total)}
+                                                style={{
+                                                    marginTop: '6px', padding: '4px 10px', fontSize: '0.7rem', fontWeight: 600,
+                                                    color: '#1a73e8', background: '#e8f0fe', border: 'none', borderRadius: '4px', cursor: 'pointer'
+                                                }}
+                                            >
+                                                📄 FACTURA
+                                            </button>
                                         </div>
                                     </div>
                                 ))}

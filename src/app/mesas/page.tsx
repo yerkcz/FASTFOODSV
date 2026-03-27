@@ -38,7 +38,10 @@ function formatColones(amount: number): string {
  */
 function stripMesaPrefix(s: string | null | undefined): string {
     if (!s) return '';
-    return s.replace(/^Mesa\s+/i, '').trim();
+    // Strip "Mesa X - " or "X - " where X is a number
+    const noPrefix = s.replace(/^(?:Mesa\s*)?\d+\s*-\s*/i, '');
+    // Strip just "Mesa "
+    return noPrefix.replace(/^Mesa\s+/i, '').trim();
 }
 
 // Time utils imported from @/lib/timeUtils — formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel, parseHora
