@@ -10,7 +10,7 @@ const AnalyticsDashboard = dynamic(() => import('@/components/analytics/Analytic
 
 type MesaGroup = {
     mesa: string | null;
-    ordenes: {orden_nu: string, cliente: string, fecha: string, estado: string, total: number}[];
+    ordenes: {orden_nu: string, cliente: string, fecha: string, estado: string, total: number, tipo?: string}[];
     total_mesa: number;
     fecha_primera: string;
 };
@@ -104,6 +104,13 @@ export default function AdminPortal() {
     const [reassignModal, setReassignModal] = useState<{show: boolean, item: OrderItem} | null>(null);
     const [reassignTarget, setReassignTarget] = useState<string>('');
     const [reassigning, setReassigning] = useState(false);
+
+    // Phase F: Add Products to Existing Order
+    const [showAddProducts, setShowAddProducts] = useState(false);
+    const [selectedAddProducts, setSelectedAddProducts] = useState<any[]>([]);
+    const [addingProducts, setAddingProducts] = useState(false);
+    const [productSearch, setProductSearch] = useState("");
+    const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
 
     // Phase D: Admin Tabs & Closed Orders
     const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja" | "stats">("open");
@@ -372,6 +379,58 @@ export default function AdminPortal() {
         );
     };
 
+    const openAddProductsModal = (ordenNu?: string) => {
+        setTargetOrdenNu(ordenNu || selectedGroup?.ordenes[0]?.orden_nu || null);
+        setShowAddProducts(true);
+        setSelectedAddProducts([]);
+        setProductSearch("");
+    };
+
+    const addProductToSelection = (product: Product) => {
+        setSelectedAddProducts(prev => {
+            const existing = prev.find(p => p.id === product.id);
+            if (existing) {
+                return prev.map(p => p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p);
+            }
+            return [...prev, { ...product, quantity: 1 }];
+        });
+    };
+
+    const updateSelectedAddQty = (productId: string, delta: number) => {
+        setSelectedAddProducts(prev => prev.map(p => {
+            if (p.id === productId) {
+                return { ...p, quantity: Math.max(0, p.quantity + delta) };
+            }
+            return p;
+        }).filter(p => p.quantity > 0));
+    };
+
+    const submitAddedProducts = async () => {
+        if (selectedAddProducts.length === 0 || !targetOrdenNu) return;
+        setAddingProducts(true);
+        try {
+            const res = await fetch("/api/admin/add-items", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+                body: JSON.stringify({
+                    orden_nu: targetOrdenNu,
+                    items: selectedAddProducts.map(p => ({ name: p.name, quantity: p.quantity, notes: "" }))
+                })
+            });
+            if (res.ok) {
+                setShowAddProducts(false);
+                setSelectedAddProducts([]);
+                setTargetOrdenNu(null);
+                if (selectedGroup) refreshTableDetails(selectedGroup);
+                fetchTables();
+            } else {
+                const data = await res.json();
+                alert(data.error || "Error al agregar productos");
+            }
+        } catch(err) { alert("Error de conexión"); }
+        finally { setAddingProducts(false); }
+    };
+
     const addToCart = (product: Product) => {
         setCart(prev => {
             const existing = prev.find(item => item.id === product.id);
@@ -440,7 +499,8 @@ export default function AdminPortal() {
     const checkoutSubtotal = tableItems
         .filter(i => selectedPaymentItems.includes(i.ID))
         .reduce((sum, item) => sum + item.TOTAL, 0);
-    const checkoutServiceCharge = Math.round(checkoutSubtotal * 0.1);
+    const isLlevarCheck = selectedGroup?.ordenes?.[0]?.tipo === 'Llevar' || (selectedGroup?.ordenes?.[0] as any)?.Tipo === 'Llevar' || !stripMesaPrefix(selectedGroup?.mesa);
+    const checkoutServiceCharge = isLlevarCheck ? 0 : Math.round(checkoutSubtotal * 0.1);
     const checkoutSelectedTotal = checkoutSubtotal + checkoutServiceCharge;
     const splitAmount = splitCount > 1 ? Math.ceil(checkoutSelectedTotal / splitCount) : checkoutSelectedTotal;
 
@@ -666,13 +726,25 @@ export default function AdminPortal() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', backgroundColor: '#fcfcfc' }}>
+                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', backgroundColor: '#fcfcfc', gap: '8px' }}>
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); openAddProductsModal(group.ordenes[0]?.orden_nu); }}
+                                            style={{ 
+                                                background: 'none', border: '1px solid #25d366', color: '#25d366', fontSize: '0.75rem', fontWeight: 600, 
+                                                letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
+                                                padding: '6px 10px', borderRadius: '4px', transition: 'all 0.2s',
+                                                backgroundColor: 'white', whiteSpace: 'nowrap'
+                                            }}
+                                            title="Agregar productos a esta orden"
+                                        >
+                                            ➕ AGREGAR
+                                        </button>
                                         <button 
                                             onClick={(e) => unlockTable(e, group)}
                                             style={{ 
-                                                background: 'none', border: '1px solid #1a73e8', color: '#1a73e8', fontSize: '0.8rem', fontWeight: 600, 
+                                                background: 'none', border: '1px solid #1a73e8', color: '#1a73e8', fontSize: '0.75rem', fontWeight: 600, 
                                                 letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
-                                                padding: '6px 12px', borderRadius: '4px', transition: 'all 0.2s',
+                                                padding: '6px 10px', borderRadius: '4px', transition: 'all 0.2s',
                                                 backgroundColor: 'white'
                                             }}
                                             title="Otorgar 5 minutos de acceso para un nuevo integrante de la mesa"
@@ -683,9 +755,9 @@ export default function AdminPortal() {
                                             onClick={(e) => closeTableGroup(e, group)}
                                             disabled={closing === targetId}
                                             style={{ 
-                                                background: 'none', border: '1px solid #d93025', color: '#d93025', fontSize: '0.8rem', fontWeight: 600, 
+                                                background: 'none', border: '1px solid #d93025', color: '#d93025', fontSize: '0.75rem', fontWeight: 600, 
                                                 letterSpacing: '0.5px', textTransform: 'uppercase', cursor: closing === targetId ? 'default' : 'pointer',
-                                                padding: '6px 16px', borderRadius: '4px', opacity: closing === targetId ? 0.5 : 1, transition: 'all 0.2s',
+                                                padding: '6px 12px', borderRadius: '4px', opacity: closing === targetId ? 0.5 : 1, transition: 'all 0.2s',
                                                 backgroundColor: closing === targetId ? '#fce8e6' : 'white'
                                             }}
                                         >
@@ -781,6 +853,9 @@ export default function AdminPortal() {
                     </div>
                 )}
 
+                {/* TAB: Estadísticas */}
+                {adminTab === 'stats' && <AnalyticsDashboard adminKey={adminKey} />}
+
             </div>
 
             {/* Table Details / Checkout Modal */}
@@ -803,7 +878,10 @@ export default function AdminPortal() {
                             {selectedGroup.ordenes.length > 1 && <div style={{fontSize: '0.75rem', color: '#5f6368', fontWeight: 500}}>{selectedGroup.ordenes.length} comandas consolidadas</div>}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            {/* Live sync indicator */}
+                            <button onClick={() => openAddProductsModal()} style={{ backgroundColor: '#25d366', color: 'white', border: 'none', borderRadius: '20px', padding: '6px 14px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                                AGREGAR
+                            </button>
                             <div title="Actualizando en tiempo real" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#25d366', animation: 'pulse 2s ease-in-out infinite', flexShrink: 0 }} />
                             <div style={{ color: '#137333', fontWeight: 800, fontSize: '1.2rem', background: '#e6f4ea', padding: '4px 12px', borderRadius: '16px' }}>
                                 {formatColones(selectedGroup.total_mesa)}
@@ -1119,7 +1197,7 @@ export default function AdminPortal() {
 
                     {/* ---------- MODO C: Partes Iguales ---------- */}
                     {splitMode === 'equal' && (() => {
-                        const totalMesa = Math.round(checkoutSubtotal * 1.1);
+                        const totalMesa = isLlevarCheck ? checkoutSubtotal : Math.round(checkoutSubtotal * 1.1);
                         const parte = Math.ceil(totalMesa / splitN);
                         return (
                         <>
@@ -1278,7 +1356,7 @@ export default function AdminPortal() {
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                                 <div style={{ fontSize: '0.75rem', color: '#5f6368', textTransform: 'uppercase', fontWeight: 600 }}>Total Estimado</div>
-                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#137333' }}>{formatColones(posTotal * 1.1)}</div>
+                                <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#137333' }}>{formatColones(posTipo === 'Llevar' ? posTotal : posTotal * 1.1)}</div>
                             </div>
                             <button 
                                 onClick={submitPosOrder}
@@ -1385,6 +1463,60 @@ export default function AdminPortal() {
                                 🗑 Anular Definitivamente
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Add Products Modal */}
+            {showAddProducts && (
+                <div style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ backgroundColor: 'white', borderRadius: '16px 16px 0 0', maxHeight: '85vh', display: 'flex', flexDirection: 'column', marginTop: 'auto' }}>
+                        <div style={{ padding: '16px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#202124' }}>Agregar Productos</div>
+                            <button onClick={() => setShowAddProducts(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                            </button>
+                        </div>
+                        <div style={{ padding: '12px', borderBottom: '1px solid #e0e0e0' }}>
+                            <input type="text" placeholder="Buscar producto..." value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                                autoFocus
+                                style={{ width: '100%', padding: '12px', fontSize: '1rem', border: '1px solid #dadce0', borderRadius: '8px', outline: 'none', boxSizing: 'border-box' }} />
+                        </div>
+                        <div style={{ flex: 1, overflowY: 'auto', padding: '12px', paddingBottom: selectedAddProducts.length > 0 ? '120px' : '12px' }}>
+                            {menu.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 ? (
+                                <div style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>No se encontraron productos</div>
+                            ) : (
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                                {menu.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product: Product) => (
+                                    <div key={product.id} onClick={() => addProductToSelection(product)} style={{ backgroundColor: '#f8f9fa', borderRadius: '8px', padding: '10px', cursor: 'pointer', border: '1px solid #e8eaed', transition: 'all 0.1s' }}>
+                                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#202124', marginBottom: '4px', lineHeight: 1.2 }}>{product.name}</div>
+                                        <div style={{ fontSize: '0.8rem', color: '#137333', fontWeight: 700 }}>{formatColones(product.price)}</div>
+                                    </div>
+                                ))}
+                            </div>
+                            )}
+                        </div>
+                        {selectedAddProducts.length > 0 && (
+                            <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'white', borderTop: '1px solid #e0e0e0', padding: '12px 16px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
+                                <div style={{ marginBottom: '8px', maxHeight: '120px', overflowY: 'auto' }}>
+                                    {selectedAddProducts.map(p => (
+                                        <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f3f4' }}>
+                                            <div style={{ flex: 1, fontSize: '0.9rem', color: '#202124' }}>
+                                                <span style={{ fontWeight: 600 }}>{p.quantity}x</span> {p.name}
+                                            </div>
+                                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                <button onClick={() => updateSelectedAddQty(p.id, -1)} style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #dadce0', backgroundColor: 'white', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                                                <span style={{ fontSize: '0.9rem', fontWeight: 600, minWidth: '20px', textAlign: 'center' }}>{p.quantity}</span>
+                                                <button onClick={() => updateSelectedAddQty(p.id, 1)} style={{ width: '28px', height: '28px', borderRadius: '50%', border: '1px solid #dadce0', backgroundColor: 'white', cursor: 'pointer', fontSize: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                                <button onClick={submitAddedProducts} disabled={addingProducts} style={{ width: '100%', padding: '12px', backgroundColor: addingProducts ? '#ccc' : '#25d366', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 700, cursor: addingProducts ? 'default' : 'pointer' }}>
+                                    {addingProducts ? 'Agregando...' : `Agregar ${selectedAddProducts.reduce((s, p) => s + p.quantity, 0)} items`}
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}

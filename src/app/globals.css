@@ -1,43 +1,43 @@
 :root {
   --background: #ffffff;
-  --foreground: #1a2e23;
+  --foreground: #0d1117;
 
-  /* Greens — expanded palette */
-  --primary: #1cc672;
-  --primary-hover: #16a55e;
-  --primary-dark: #0e8c4a;
-  --primary-light: rgba(28, 198, 114, 0.08);
-  --primary-surface: rgba(28, 198, 114, 0.10);
-  --primary-glow: rgba(28, 198, 114, 0.18);
-  --primary-gradient: linear-gradient(135deg, #1cc672 0%, #0fa85a 50%, #0d9650 100%);
-  --primary-gradient-soft: linear-gradient(135deg, rgba(28, 198, 114, 0.06), rgba(14, 140, 74, 0.03));
+  /* Greens — premium dark green palette */
+  --primary: #047857; /* Adjusted for WCAG AA contrast (was #059669) */
+  --primary-hover: #065f46;
+  --primary-dark: #064e3b;
+  --primary-light: rgba(4, 120, 87, 0.08);
+  --primary-surface: rgba(4, 120, 87, 0.10);
+  --primary-glow: rgba(4, 120, 87, 0.18);
+  --primary-gradient: linear-gradient(135deg, #047857 0%, #065f46 50%, #064e3b 100%);
+  --primary-gradient-soft: linear-gradient(135deg, rgba(4, 120, 87, 0.06), rgba(6, 78, 59, 0.03));
 
-  /* Surfaces */
-  --surface: #f4f8f5;
-  --surface-border: #dce8e0;
-  --surface-hover: #e8f2eb;
-  --surface-glass: rgba(244, 248, 245, 0.75);
+  /* Surfaces — cleaner grays */
+  --surface: #f6f8fa;
+  --surface-border: #e1e4e8;
+  --surface-hover: #edf0f3;
+  --surface-glass: rgba(246, 248, 250, 0.75);
 
   /* Accent & Danger */
-  --accent: #e8990a;
-  --accent-soft: rgba(232, 153, 10, 0.1);
-  --danger: #ef233c;
-  --danger-soft: rgba(239, 35, 60, 0.08);
+  --accent: #d97706;
+  --accent-soft: rgba(217, 119, 6, 0.1);
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.08);
 
-  /* Text */
-  --text-primary: #1a2e23;
-  --text-secondary: #4a6b56;
-  --text-muted: #8fa898;
+  /* Text — refined dark theme */
+  --text-primary: #0d1117;
+  --text-secondary: #57606a;
+  --text-muted: #8b949e;
 
   /* Cards */
   --card-bg: #ffffff;
-  --card-border: #dce8e0;
-  --card-shadow: 0 2px 12px rgba(15, 38, 24, 0.06);
-  --card-shadow-hover: 0 6px 24px rgba(28, 198, 114, 0.14);
+  --card-border: #e1e4e8;
+  --card-shadow: 0 2px 12px rgba(13, 17, 23, 0.06);
+  --card-shadow-hover: 0 6px 24px rgba(5, 150, 105, 0.14);
 
   /* Header */
-  --header-bg: linear-gradient(135deg, #0f2618, #132f1e);
-  --header-text: #eef7f0;
+  --header-bg: linear-gradient(135deg, #0d1117, #161b22);
+  --header-text: #f0f6fc;
 
   /* Misc */
   --radius-sm: 10px;
@@ -45,6 +45,22 @@
   --radius-lg: 20px;
   --radius-xl: 24px;
   --transition: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Fluid Typography */
+  --text-xs: clamp(0.70rem, 1.8vw, 0.78rem);
+  --text-sm: clamp(0.80rem, 2.2vw, 0.875rem);
+  --text-base: clamp(0.875rem, 2.5vw, 1rem);
+  --text-lg: clamp(1rem, 3vw, 1.15rem);
+  --text-xl: clamp(1.15rem, 4vw, 1.5rem);
+  --text-2xl: clamp(1.5rem, 5vw, 2rem);
+
+  /* Spacing Scale */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
 }
 
 * {
@@ -63,12 +79,53 @@ html {
 body {
   background-color: var(--background);
   color: var(--foreground);
-  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+  font-family: var(--font-outfit), "Outfit", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   min-height: 100dvh;
   overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Global touch-target rule — all buttons clickable on mobile */
+button,
+[role='button'],
+a {
+  touch-action: manipulation;
+}
+
+/* Minimum touch target: apply to all buttons that are not
+   explicitly sized differently (e.g. icon-only buttons). */
+button:not([class*='no-min']):not(nav button) {
+  min-height: 44px;
+}
+
+/* Icon-only buttons pattern */
+.icon-btn {
+  min-height: 44px;
+  min-width: 44px;
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Accesibilidad: Respetar preferencia de movimiento reducido */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Accesibilidad: Focus visible para navegacion por teclado */
+:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
 
 a {
@@ -156,7 +213,7 @@ textarea {
 .order-field label {
   color: var(--primary);
   font-weight: 700;
-  font-size: 0.72rem;
+  font-size: var(--text-xs);
   text-transform: uppercase;
   letter-spacing: 0.6px;
 }
@@ -202,7 +259,7 @@ textarea {
   border: 1.5px solid rgba(28, 198, 114, 0.2);
   border-radius: var(--radius-sm);
   color: var(--primary-dark);
-  font-size: 0.92rem;
+  font-size: var(--text-base);
   font-weight: 700;
   padding: 10px 14px;
   letter-spacing: 0.3px;
@@ -276,9 +333,17 @@ textarea {
   cursor: pointer;
   white-space: nowrap;
   transition: all var(--transition);
-  font-size: 0.82rem;
+  font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary);
+  
+  /* Touch targets minimum size */
+  min-height: 44px;
+  min-width: 44px;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .category-pill:hover {
@@ -298,10 +363,16 @@ textarea {
 /* ====== PRODUCT GRID ====== */
 .products-grid {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: 1fr;
   gap: 10px;
   flex: 1;
   padding-bottom: 20px;
+}
+
+@media (min-width: 361px) {
+  .products-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* ====== CONFIRMATION MODAL ====== */
@@ -339,7 +410,7 @@ textarea {
 }
 
 .modal-content h2 {
-  font-size: 1.15rem;
+  font-size: var(--text-lg);
   margin-bottom: 6px;
   color: var(--text-primary);
 }
@@ -351,12 +422,9 @@ textarea {
 }
 
 .modal-total {
-  font-size: 2rem;
+  font-size: var(--text-2xl);
   font-weight: 800;
-  background: var(--primary-gradient);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: var(--primary);
   margin: 14px 0 20px;
 }
 
@@ -623,8 +691,8 @@ html {
 }
 
 .floating-cart-total {
-  color: #ffb703;
-  font-size: 1.2rem;
+  color: var(--primary);
+  font-size: var(--text-xl);
   font-weight: 800;
   letter-spacing: 0.3px;
 }
@@ -760,31 +828,7 @@ html {
   }
 }
 
-/* Small phones (480px and below) */
-@media (max-width: 480px) {
-  .category-pill {
-    padding: 7px 14px;
-    font-size: 0.8rem;
-  }
-}
-
-/* Very small phones */
-@media (max-width: 360px) {
-  .products-grid {
-    grid-template-columns: 1fr;
-    gap: 8px;
-  }
-
-  .category-pill {
-    padding: 6px 12px;
-    font-size: 0.78rem;
-  }
-
-  .floating-cart-btn {
-    padding: 10px 18px;
-    font-size: 0.88rem;
-  }
-}
+/* Small phones - handled via clamp() and min-width rules globally */
 
 /* ====== PARTY PIN SCREEN ====== */
 .pin-screen {
@@ -1003,24 +1047,25 @@ body.sidebar-open {
 /* ====== INICIO — Navigation Grid ====== */
 .inicio-grid {
   display: grid;
+  /* Mobile: 2 columns — fits all screen widths */
   grid-template-columns: repeat(2, 1fr);
-  gap: 14px;
+  gap: 12px;
 }
 
-@media (min-width: 600px) {
+@media (min-width: 481px) {
   .inicio-grid {
     grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
   }
 }
 
-@media (max-width: 360px) {
+@media (min-width: 769px) {
   .inicio-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
   }
   .inicio-grid > a > div {
-    min-height: 90px !important;
-    padding: 12px 8px !important;
+    min-height: 130px !important;
   }
 }
 
@@ -1055,31 +1100,40 @@ body.sidebar-open {
   right: 0;
   background: white;
   border-top: 1px solid #e0e0e0;
-  padding: 12px 16px;
-  padding-bottom: max(12px, env(safe-area-inset-bottom));
+  /* Base (mobile): compact */
+  padding: 8px 12px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
   box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
   z-index: 500;
 }
 
-@media (max-width: 360px) {
+.checkout-footer .totals-row {
+  font-size: 0.78rem;
+}
+
+.checkout-footer .totals-total {
+  font-size: 0.95rem;
+}
+
+.checkout-footer .payment-btn {
+  padding: 6px 4px;
+  font-size: 0.72rem;
+}
+
+.checkout-footer .cobrar-btn {
+  padding: 10px;
+  font-size: 0.82rem;
+}
+
+@media (min-width: 481px) {
   .checkout-footer {
-    padding: 8px 12px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
+    padding: 12px 16px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
-  .checkout-footer .totals-row {
-    font-size: 0.78rem !important;
-  }
-  .checkout-footer .totals-total {
-    font-size: 0.95rem !important;
-  }
-  .checkout-footer .payment-btn {
-    padding: 6px 4px !important;
-    font-size: 0.72rem !important;
-  }
-  .checkout-footer .cobrar-btn {
-    padding: 10px !important;
-    font-size: 0.82rem !important;
-  }
+  .checkout-footer .totals-row { font-size: 0.85rem; }
+  .checkout-footer .totals-total { font-size: 1.1rem; }
+  .checkout-footer .payment-btn { padding: 8px; font-size: 0.8rem; }
+  .checkout-footer .cobrar-btn { padding: 12px; font-size: 0.9rem; }
 }
 
 /* ====== KDS TABLE — Responsive Columns ====== */
@@ -1087,34 +1141,35 @@ body.sidebar-open {
 .kds-table-row {
   display: grid;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 10px;
   gap: 4px;
 }
 
-/* Desktop: full table */
+/* Mobile base: only item + action button */
 .kds-table-header,
 .kds-table-row {
-  grid-template-columns: 1fr 80px 70px 70px;
+  grid-template-columns: 1fr 55px;
 }
 
-/* Tablet: hide notas */
-@media (max-width: 900px) {
-  .kds-col-notas { display: none !important; }
+.kds-col-mesa,
+.kds-col-notas { display: none !important; }
+
+/* Tablet vertical (481px+): show mesa column */
+@media (min-width: 481px) {
+  .kds-col-mesa { display: block !important; }
   .kds-table-header,
   .kds-table-row {
     grid-template-columns: 1fr 70px 65px;
+    padding: 8px 12px;
   }
 }
 
-/* Mobile: compact */
-@media (max-width: 600px) {
-  .kds-col-mesa  { display: none !important; }
+/* Desktop (901px+): show notas column too */
+@media (min-width: 901px) {
+  .kds-col-notas { display: block !important; }
   .kds-table-header,
   .kds-table-row {
-    grid-template-columns: 1fr 55px;
-  }
-  .kds-table-row {
-    padding: 10px 10px;
+    grid-template-columns: 1fr 80px 70px 70px;
   }
 }
 
@@ -1299,4 +1354,32 @@ select.has-error {
   animation: fadeInUp 0.4s ease 0.3s both;
   max-width: 280px;
   line-height: 1.5;
+}
+
+.add-product-btn {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  background-color: #25d366;
+  color: white;
+  border: none;
+  border-radius: 20px;
+  padding: 10px 16px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 10;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  transition: transform 0.1s, background-color 0.1s;
+}
+
+.add-product-btn:hover {
+  background-color: #1da851;
+}
+
+.add-product-btn:active {
+  transform: scale(0.95);
 }

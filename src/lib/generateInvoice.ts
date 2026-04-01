@@ -1,13 +1,6 @@
 import { jsPDF } from "jspdf";
 
-export type CartItem = {
-    id: string;
-    name: string;
-    price: number;
-    quantity: number;
-    category: string;
-    notas?: string;
-};
+import { type CartItem } from "@/types";
 
 export type OrderMeta = {
     mesa: string;
@@ -65,23 +58,23 @@ export async function generateInvoice(
     }
 
     // Brand Name
-    doc.setTextColor(30, 40, 35);
+    doc.setTextColor(13, 17, 23);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(22);
+    doc.setFontSize(24);
     doc.text("HIDEAWAY", pageWidth / 2, y, { align: "center" });
 
     // Subtitle
     y += 6;
     doc.setFontSize(9);
-    doc.setTextColor(100, 110, 105);
+    doc.setTextColor(87, 96, 106);
     doc.setFont("helvetica", "normal");
     doc.text("RESTAURANTE & CAFÉ", pageWidth / 2, y, { align: "center", charSpace: 1 });
 
     y += 15;
 
     // Divider
-    doc.setDrawColor(220, 225, 222);
-    doc.setLineWidth(0.5);
+    doc.setDrawColor(5, 150, 105);
+    doc.setLineWidth(0.8);
     doc.line(margin, y, pageWidth - margin, y);
 
     // ═══════════════════════════════════════
@@ -95,7 +88,7 @@ export async function generateInvoice(
     
 
     doc.setFontSize(10);
-    doc.setTextColor(50, 60, 55);
+    doc.setTextColor(13, 17, 23);
 
     // Left side: Order & Date
     doc.setFont("helvetica", "bold");
@@ -117,7 +110,7 @@ export async function generateInvoice(
     y += 14;
 
     // Divider
-    doc.setDrawColor(220, 225, 222);
+    doc.setDrawColor(225, 228, 232);
     doc.setLineWidth(0.5);
     doc.line(margin, y, pageWidth - margin, y);
 
@@ -127,7 +120,7 @@ export async function generateInvoice(
     y += 8;
     doc.setFontSize(8);
     doc.setFont("helvetica", "bold");
-    doc.setTextColor(150, 160, 155);
+    doc.setTextColor(87, 96, 106);
 
     doc.text("ARTÍCULO", colNameX, y);
     doc.text("CANT", colCantX, y, { align: "center" });
@@ -135,7 +128,7 @@ export async function generateInvoice(
     doc.text("SUBTOTAL", colTotalX, y, { align: "right" });
 
     y += 4;
-    doc.setDrawColor(240, 245, 242);
+    doc.setDrawColor(225, 228, 232);
     doc.setLineWidth(0.2);
     doc.line(margin, y, pageWidth - margin, y);
 
@@ -144,7 +137,7 @@ export async function generateInvoice(
     // ═══════════════════════════════════════
     y += 8;
     doc.setFontSize(10);
-    doc.setTextColor(40, 50, 45);
+    doc.setTextColor(13, 17, 23);
 
     items.forEach((item) => {
         if (y > 260) {
@@ -158,14 +151,14 @@ export async function generateInvoice(
 
         // Quantity
         doc.setFont("helvetica", "normal");
-        doc.setTextColor(100, 110, 105);
+        doc.setTextColor(87, 96, 106);
         doc.text(String(item.quantity), colCantX, y, { align: "center" });
 
         // Unit Price
         doc.text(formatColones(item.price), colPriceX, y, { align: "right" });
 
         // Subtotal
-        doc.setTextColor(40, 50, 45);
+        doc.setTextColor(13, 17, 23);
         doc.text(formatColones(item.price * item.quantity), colTotalX, y, {
             align: "right",
         });
@@ -174,7 +167,7 @@ export async function generateInvoice(
             y += 4;
             doc.setFontSize(8);
             doc.setFont("helvetica", "italic");
-            doc.setTextColor(120, 130, 125);
+            doc.setTextColor(139, 148, 158);
             doc.text(`* ${item.notas}`, colNameX + 2, y);
             doc.setFontSize(10);
             doc.setFont("helvetica", "normal");
@@ -188,17 +181,19 @@ export async function generateInvoice(
     // ═══════════════════════════════════════
 
     // Top line for total
-    doc.setDrawColor(50, 60, 55);
-    doc.setLineWidth(0.8);
+    doc.setDrawColor(5, 150, 105);
+    doc.setLineWidth(1);
     doc.line(margin, y, pageWidth - margin, y);
 
     y += 12;
 
     doc.setFontSize(12);
     doc.setFont("helvetica", "bold");
+    doc.setTextColor(13, 17, 23);
     doc.text("TOTAL", pageWidth - margin - 50, y, { align: "right" });
 
-    doc.setFontSize(16);
+    doc.setFontSize(18);
+    doc.setTextColor(5, 150, 105);
     doc.text(formatColones(total), colTotalX, y, { align: "right" });
 
     // Double line under total
@@ -214,13 +209,13 @@ export async function generateInvoice(
     y += 40;
 
     doc.setFontSize(10);
-    doc.setTextColor(100, 110, 105);
+    doc.setTextColor(87, 96, 106);
     doc.setFont("helvetica", "normal");
     doc.text("¡Muchas gracias por su preferencia!", pageWidth / 2, y, { align: "center" });
 
     y += 6;
     doc.setFontSize(8);
-    doc.setTextColor(150, 160, 155);
+    doc.setTextColor(139, 148, 158);
     doc.text("Este comprobante es para control interno.", pageWidth / 2, y, { align: "center" });
 
     // Save

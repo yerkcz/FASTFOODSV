@@ -13,6 +13,7 @@ type Table = {
     fecha: string;
     estado: string;
     total: number;
+    tipo?: string;
 };
 
 type OrderItem = {
@@ -54,6 +55,15 @@ export default function MesasPage() {
     const [loadingDetails, setLoadingDetails] = useState(false);
     const [markingListo, setMarkingListo] = useState<string | null>(null);
     
+    // Add Products Modal State
+    const [showAddProducts, setShowAddProducts] = useState(false);
+    const [menuProducts, setMenuProducts] = useState<any[]>([]);
+    const [loadingMenu, setLoadingMenu] = useState(false);
+    const [selectedProducts, setSelectedProducts] = useState<any[]>([]);
+    const [addingProducts, setAddingProducts] = useState(false);
+    const [productSearch, setProductSearch] = useState("");
+    const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
+    
     // Checkout state
     const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "Tarjeta" | "Sinpe">("Efectivo");
     const [amountReceived, setAmountReceived] = useState("");
@@ -88,7 +98,7 @@ export default function MesasPage() {
         setAmountReceived("");
         try {
             const res = await fetch(`/api/admin/table-details?orden_nu=${table.orden_nu}`, {
-                headers: { "x-admin-key": "admin123" }
+                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -101,7 +111,7 @@ export default function MesasPage() {
     const refreshOrderDetails = useCallback(async (table: Table) => {
         try {
             const res = await fetch(`/api/admin/table-details?orden_nu=${table.orden_nu}`, {
-                headers: { "x-admin-key": "admin123" }
+                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -109,6 +119,67 @@ export default function MesasPage() {
             }
         } catch (err) { }
     }, []);
+
+    const openAddProductsModal = async (ordenNu?: string, e?: React.MouseEvent) => {
+        if (e) e.stopPropagation();
+        setTargetOrdenNu(ordenNu || selectedOrder?.orden_nu || null);
+        setShowAddProducts(true);
+        setLoadingMenu(true);
+        setSelectedProducts([]);
+        setProductSearch("");
+        try {
+            const res = await fetch("/api/menu", { headers: { "x-api-key": API_KEY } });
+            if (res.ok) {
+                const data = await res.json();
+                if (data.products) setMenuProducts(data.products);
+            }
+        } catch (err) { console.error(err); }
+        finally { setLoadingMenu(false); }
+    };
+
+    const addProductToSelection = (product: any) => {
+        setSelectedProducts(prev => {
+            const existing = prev.find(p => p.id === product.id);
+            if (existing) {
+                return prev.map(p => p.id === product.id ? { ...p, quantity: p.quantity + 1 } : p);
+            }
+            return [...prev, { ...product, quantity: 1, notes: "" }];
+        });
+    };
+
+    const updateSelectedQty = (productId: string, delta: number) => {
+        setSelectedProducts(prev => prev.map(p => {
+            if (p.id === productId) {
+                return { ...p, quantity: Math.max(0, p.quantity + delta) };
+            }
+            return p;
+        }).filter(p => p.quantity > 0));
+    };
+
+    const submitAddedProducts = async () => {
+        if (selectedProducts.length === 0 || !targetOrdenNu) return;
+        setAddingProducts(true);
+        try {
+            const res = await fetch("/api/admin/add-items", {
+                method: "POST",
+                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" },
+                body: JSON.stringify({
+                    orden_nu: targetOrdenNu,
+                    items: selectedProducts.map(p => ({ name: p.name, quantity: p.quantity, notes: p.notes || "" }))
+                })
+            });
+            if (res.ok) {
+                setShowAddProducts(false);
+                setTargetOrdenNu(null);
+                if (selectedOrder) refreshOrderDetails(selectedOrder);
+                fetchTables();
+            } else {
+                const data = await res.json();
+                alert(data.error || "Error al agregar productos");
+            }
+        } catch (err) { alert("Error de conexión"); }
+        finally { setAddingProducts(false); }
+    };
 
     useEffect(() => {
         if (detailPollRef.current) clearInterval(detailPollRef.current);
@@ -140,7 +211,7 @@ export default function MesasPage() {
     const closeOrder = async () => {
         if (!selectedOrder) return;
         const itemsTotal = orderItems.reduce((s, i) => s + Number(i.TOTAL || 0), 0);
-        const total = Math.round(itemsTotal * 1.1);
+        const total = Math.round(itemsTotal * (selectedOrder?.tipo === 'Llevar' ? 1.0 : 1.1));
         
         if (paymentMethod === "Efectivo") {
             const recv = Number(amountReceived) || 0;
@@ -154,7 +225,7 @@ export default function MesasPage() {
         try {
             const res = await fetch("/api/admin/close-table", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-admin-key": "admin123" },
+                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" },
                 body: JSON.stringify({
                     ordenNu: selectedOrder.orden_nu,
                     forma_pago: paymentMethod,
@@ -174,13 +245,13 @@ export default function MesasPage() {
     // Detail view
     if (selectedOrder) {
         const itemsTotal = orderItems.reduce((s, i) => s + Number(i.TOTAL || 0), 0);
-        const serviceCharge = Math.round(itemsTotal * 0.1);
+        const serviceCharge = Math.round(itemsTotal * (selectedOrder?.tipo === 'Llevar' ? 0 : 0.1));
         const totalFinal = itemsTotal + serviceCharge;
         const vuelto = paymentMethod === "Efectivo" ? Math.max(0, (Number(amountReceived) || 0) - totalFinal) : 0;
 
         return (
             <div style={{ minHeight: '100dvh', backgroundColor: '#f3f4f6', fontFamily: 'Roboto, sans-serif' }}>
-                <header style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '56px', backgroundColor: 'white', display: 'flex', alignItems: 'center', gap: '16px', padding: '0 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', zIndex: 1000 }}>
+                <header style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '56px', backgroundColor: 'white', display: 'flex', alignItems: 'center', gap: '12px', padding: '0 16px', boxShadow: '0 1px 2px rgba(0,0,0,0.1)', zIndex: 1000 }}>
                     <div onClick={() => setSelectedOrder(null)} style={{ cursor: 'pointer' }}>
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
                     </div>
@@ -190,6 +261,10 @@ export default function MesasPage() {
                         </div>
                         <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>#{selectedOrder.orden_nu}</div>
                     </div>
+                    <button onClick={() => openAddProductsModal()} className="add-product-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        AGREGAR
+                    </button>
                     <div style={{ color: '#1a73e8', fontWeight: 600, fontSize: '1.1rem' }}>{formatColones(totalFinal)}</div>
                 </header>
 
@@ -242,12 +317,13 @@ export default function MesasPage() {
                                     <button 
                                         onClick={() => toggleListo(item.ID)}
                                         disabled={markingListo === item.ID}
+                                        aria-label={item.LISTO ? `Marcar ${item.ARTICULO} como pendiente` : `Marcar ${item.ARTICULO} como listo`}
                                         style={{ 
-                                            width: '32px', height: '32px', borderRadius: '50%',
+                                            width: '44px', height: '44px', borderRadius: '50%',
                                             border: `2px solid ${item.LISTO ? '#1e8e3e' : '#dadce0'}`,
                                             backgroundColor: item.LISTO ? '#1e8e3e' : 'white',
                                             cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                            padding: 0, flexShrink: 0
+                                            padding: 0, flexShrink: 0, touchAction: 'manipulation'
                                         }}
                                     >
                                         {item.LISTO
@@ -306,6 +382,81 @@ export default function MesasPage() {
                         {closing ? 'Procesando...' : `Cobrar ${formatColones(totalFinal)} y Cerrar`}
                     </button>
                 </div>
+
+                {/* Add Products Modal - Accesible */}
+                {showAddProducts && (
+                    <div 
+                        role="dialog" 
+                        aria-modal="true" 
+                        aria-labelledby="modal-title"
+                        style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)', zIndex: 3000, display: 'flex', alignItems: 'flex-end' }} 
+                        onClick={() => setShowAddProducts(false)}
+                    >
+                        <div style={{ backgroundColor: 'white', borderRadius: '16px 16px 0 0', width: '100%', maxWidth: '600px', margin: '0 auto', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+                            <div style={{ padding: '16px', borderBottom: '1px solid #e0e0e0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                                <div id="modal-title" style={{ fontSize: '1.1rem', fontWeight: 700, color: '#202124' }}>Agregar Productos</div>
+                                <button onClick={() => setShowAddProducts(false)} aria-label="Cerrar modal" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '8px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5f6368" strokeWidth="2" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                            </div>
+                            <div style={{ padding: '12px', borderBottom: '1px solid #e0e0e0' }}>
+                                <input 
+                                    type="text" 
+                                    placeholder="Buscar producto..." 
+                                    value={productSearch} 
+                                    onChange={e => setProductSearch(e.target.value)}
+                                    aria-label="Buscar productos en el menu"
+                                    autoFocus
+                                    style={{ width: '100%', padding: '12px', fontSize: '1rem', border: '1px solid #dadce0', borderRadius: '8px', outline: 'none', boxSizing: 'border-box' }} 
+                                />
+                            </div>
+                            <div style={{ flex: 1, overflowY: 'auto', padding: '12px', minHeight: '200px', maxHeight: '50vh' }} role="list" aria-label="Lista de productos">
+                                {loadingMenu ? (
+                                    <div role="status" style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>Cargando menú...</div>
+                                ) : menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).length === 0 ? (
+                                    <div role="status" style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>No se encontraron productos</div>
+                                ) : (
+                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
+                                        {menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product: any) => (
+                                            <div 
+                                                key={product.id} 
+                                                onClick={() => addProductToSelection(product)} 
+                                                role="listitem"
+                                                tabIndex={0}
+                                                onKeyDown={(e) => e.key === 'Enter' && addProductToSelection(product)}
+                                                style={{ backgroundColor: '#f8f9fa', borderRadius: '8px', padding: '12px', cursor: 'pointer', border: '1px solid #e8eaed', transition: 'all 0.1s' }}
+                                            >
+                                                <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#202124', marginBottom: '4px', lineHeight: 1.2 }}>{product.name}</div>
+                                                <div style={{ fontSize: '0.8rem', color: '#137333', fontWeight: 700 }}>{formatColones(product.price)}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                            {selectedProducts.length > 0 && (
+                                <div style={{ backgroundColor: 'white', borderTop: '1px solid #e0e0e0', padding: '12px 16px', paddingBottom: 'max(12px, env(safe-area-inset-bottom))', boxShadow: '0 -2px 10px rgba(0,0,0,0.1)' }}>
+                                    <div style={{ marginBottom: '8px', maxHeight: '100px', overflowY: 'auto' }} role="list" aria-label="Productos seleccionados">
+                                        {selectedProducts.map(p => (
+                                            <div key={p.id} role="listitem" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #f1f3f4' }}>
+                                                <div style={{ flex: 1, fontSize: '0.9rem', color: '#202124' }}>
+                                                    <span style={{ fontWeight: 600 }}>{p.quantity}x</span> {p.name}
+                                                </div>
+                                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                                    <button onClick={() => updateSelectedQty(p.id, -1)} aria-label={`Disminuir cantidad de ${p.name}`} style={{ width: '44px', height: '44px', minWidth: '44px', borderRadius: '50%', border: '1px solid #dadce0', backgroundColor: 'white', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}>−</button>
+                                                    <span style={{ fontSize: '0.9rem', fontWeight: 600, minWidth: '20px', textAlign: 'center' }}>{p.quantity}</span>
+                                                    <button onClick={() => updateSelectedQty(p.id, 1)} aria-label={`Aumentar cantidad de ${p.name}`} style={{ width: '44px', height: '44px', minWidth: '44px', borderRadius: '50%', border: '1px solid #dadce0', backgroundColor: 'white', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}>+</button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                    <button onClick={submitAddedProducts} disabled={addingProducts} aria-label={addingProducts ? 'Agregando productos' : `Agregar ${selectedProducts.reduce((s, p) => s + p.quantity, 0)} productos a la orden`} style={{ width: '100%', padding: '14px', backgroundColor: addingProducts ? '#ccc' : '#25d366', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 700, cursor: addingProducts ? 'default' : 'pointer' }}>
+                                        {addingProducts ? 'Agregando...' : `Agregar ${selectedProducts.reduce((s, p) => s + p.quantity, 0)} items`}
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
             </div>
         );
     }
@@ -340,8 +491,8 @@ export default function MesasPage() {
                             const tBg = getTimeBg(t.fecha);
                             const tBadge = getUrgencyBadge(t.fecha);
                             return (
-                            <div key={t.orden_nu} onClick={() => openOrder(t)} style={{ backgroundColor: tBg !== 'transparent' ? tBg : 'white', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden', cursor: 'pointer', position: 'relative', borderLeft: `4px solid ${tColor}` }}>
-                                <div style={{ padding: '14px 16px 14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div key={t.orden_nu} style={{ backgroundColor: tBg !== 'transparent' ? tBg : 'white', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden', position: 'relative', borderLeft: `4px solid ${tColor}` }}>
+                                <div onClick={() => openOrder(t)} style={{ padding: '14px 16px 14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer' }}>
                                     <div style={{ minWidth: 0 }}>
                                         <div style={{ fontSize: '1rem', color: '#202124', fontWeight: 600 }}>
                                             {t.mesa ? `Mesa ${stripMesaPrefix(t.mesa)}` : ''}{stripMesaPrefix(t.cliente) ? ` — ${stripMesaPrefix(t.cliente)}` : ''}

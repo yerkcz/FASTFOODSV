@@ -18,7 +18,7 @@ export async function GET(request: Request) {
                 COALESCE(SUM("Total"), 0) as venta_total
             FROM "CLIENTES"
             WHERE "Estado" = 'Cerrada' 
-              AND DATE("Fecha") = CURRENT_DATE
+              AND DATE("Fecha" AT TIME ZONE 'America/Costa_Rica') = CURRENT_DATE
         `);
 
         // Get the list of closed tables for the day to show details
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
                 "Forma_Pago"
             FROM "CLIENTES"
             WHERE "Estado" = 'Cerrada'
-              AND DATE("Fecha") = CURRENT_DATE
+              AND DATE("Fecha" AT TIME ZONE 'America/Costa_Rica') = CURRENT_DATE
             ORDER BY "Fecha" DESC
         `);
 

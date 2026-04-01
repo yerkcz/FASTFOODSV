@@ -35,7 +35,8 @@ export default function KitchenDisplaySystem() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   useEffect(() => {
-    audioRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+    // Sonido desactivado a petición del usuario
+    // audioRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
   }, []);
 
   const fetchOrders = useCallback(async () => {
@@ -47,7 +48,7 @@ export default function KitchenDisplaySystem() {
             acc + o.items.filter(i => !i.listo).length, 0);
 
         if (soundEnabled && newTotalPendingItems > lastOrdersCount && lastOrdersCount !== 0) {
-            audioRef.current?.play().catch(console.error);
+            // audioRef.current?.play().catch(console.error);
         }
         
         setLastOrdersCount(newTotalPendingItems);
@@ -130,7 +131,7 @@ export default function KitchenDisplaySystem() {
             <button 
               onClick={() => {
                 setSoundEnabled(true);
-                audioRef.current?.play().catch(() => {});
+                // audioRef.current?.play().catch(() => {});
               }}
               style={{ 
                 padding: '14px 32px', fontSize: '0.95rem', 

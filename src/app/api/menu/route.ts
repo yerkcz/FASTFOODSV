@@ -25,15 +25,15 @@ export async function GET(request: Request) {
         // 3. Fetch menu from Neon DB
         const res = await query('SELECT "ARTICULO" as name, "PRECIO" as price, "CATEGORIA" as category FROM "MENU" ORDER BY "CATEGORIA", "ARTICULO"');
 
-        // Map to the expected format and filter out price <= 0 items
+        // Map to the expected format - return ALL products, frontend handles filtering
         const products = res.rows
             .map((row, i) => ({
                 id: `DB_${i}`, // Generate a temporary ID for frontend use
                 name: row.name,
-                price: Number(row.price),
+                price: Number(row.price) || 0,
                 category: row.category || 'Otros'
             }))
-            .filter((p) => p.price > 1);
+            .filter((p) => p.name && p.name.trim() !== '');
 
         return NextResponse.json(
             { products },

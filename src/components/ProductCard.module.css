@@ -96,7 +96,7 @@
 .price {
     font-size: 0.92rem;
     font-weight: 800;
-    color: #e8990a;
+    color: #059669;
     white-space: nowrap;        /* keep on one line when space allows */
     flex-shrink: 0;             /* never let price compress */
     min-width: 0;

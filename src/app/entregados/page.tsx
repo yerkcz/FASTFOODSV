@@ -25,7 +25,7 @@ export default function EntregadosPage() {
     const fetchOrders = useCallback(async () => {
         try {
             const res = await fetch("/api/admin/closed-orders", {
-                headers: { "x-admin-key": "admin123" }
+                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" }
             });
             if (res.ok) {
                 const data = await res.json();

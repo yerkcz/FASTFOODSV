@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { Inter } from "next/font/google";
+import { Outfit } from "next/font/google";
 import Navigation from "@/components/Navigation";
 import "./globals.css";
 
-const inter = Inter({
+const outfit = Outfit({
   subsets: ["latin"],
   display: "swap",
+  variable: "--font-outfit",
 });
 
 export const viewport: Viewport = {
@@ -41,7 +42,7 @@ export default function RootLayout({
           rel="stylesheet"
         />
       </head>
-      <body className={inter.className}>
+      <body className={outfit.variable}>
         <div style={{ paddingTop: '0px' }}>
           {children}
         </div>

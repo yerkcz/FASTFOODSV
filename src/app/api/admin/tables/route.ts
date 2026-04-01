@@ -16,6 +16,7 @@ export async function GET(request: Request) {
             SELECT 
                 c."Orden_Nu",
                 c."Nombre_Cliente",
+                c."Tipo",
                 c."Mesa",
                 c."Fecha",
                 c."Estado",
@@ -23,7 +24,7 @@ export async function GET(request: Request) {
             FROM "CLIENTES" c
             LEFT JOIN "PEDIDOS" p ON c."Orden_Nu" = p."Orden_Nu"
             WHERE c."Estado" = 'Abierta'
-            GROUP BY c."Orden_Nu", c."Nombre_Cliente", c."Mesa", c."Fecha", c."Estado"
+            GROUP BY c."Orden_Nu", c."Nombre_Cliente", c."Tipo", c."Mesa", c."Fecha", c."Estado"
             ORDER BY c."Fecha" DESC
         `);
 
@@ -44,11 +45,12 @@ export async function GET(request: Request) {
             }
             
             const group = mesaGroups.get(mesaKey);
-            const orderTotal = sumNumeric * 1.1; // 10% service
+            const orderTotal = row.Tipo === 'Llevar' ? sumNumeric : sumNumeric * 1.1; // 10% service solo restaurante
             
             group.ordenes.push({
                 orden_nu: row.Orden_Nu,
                 cliente: row.Nombre_Cliente,
+                tipo: row.Tipo,
                 fecha: row.Fecha,
                 estado: row.Estado,
                 total: orderTotal
@@ -62,10 +64,11 @@ export async function GET(request: Request) {
             return {
                 orden_nu: row.Orden_Nu,
                 cliente: row.Nombre_Cliente,
+                tipo: row.Tipo,
                 mesa: row.Mesa,
                 fecha: row.Fecha,
                 estado: row.Estado,
-                total: sumNumeric * 1.1
+                total: row.Tipo === 'Llevar' ? sumNumeric : sumNumeric * 1.1
             };
         });
 

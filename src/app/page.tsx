@@ -2,8 +2,8 @@
 
 import { useState, useMemo, useCallback, useEffect } from "react";
 import Image from "next/image";
-import { type Product } from "@/data";
-import { generateInvoice, type CartItem } from "@/lib/generateInvoice";
+import { generateInvoice } from "@/lib/generateInvoice";
+import { type Product, type CartItem } from "@/types";
 import cardStyles from "@/components/ProductCard.module.css";
 import cartStyles from "@/components/Cart.module.css";
 
@@ -35,6 +35,14 @@ function sortCategories(cats: string[]): string[] {
     if (idxB !== -1) return 1;
     return a.localeCompare(b, "es");
   });
+}
+
+function validateOrderBeforeSubmit(items: CartItem[], tableId: string): string | null {
+  if (items.length === 0) return 'Agrega al menos un producto';
+  if (!tableId || tableId.trim() === '' || tableId === 'Mesa --') return 'Asigna una mesa válida';
+  if (items.some(i => i.price < 0 || isNaN(i.price))) return 'Precio inválido en orden';
+  if (items.some(i => i.quantity < 1)) return 'Cantidad inválida';
+  return null;
 }
 
 export default function POSPage() {
@@ -271,11 +279,14 @@ export default function POSPage() {
       const matchesCategory = activeCategory === "Todos" || p.category === activeCategory;
       const matchesSearch = search === "" || p.name.toLowerCase().includes(search.toLowerCase());
 
-      // 2. Filter out illogical/internal items perfectly
+      // 2. Filter out illogical/internal items - ONLY for clients, not for waiters/admins
       const nameLower = p.name.toLowerCase();
-      const isLogical = !EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw));
+      const isLogical = isWaiterMode || !EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw));
 
-      return matchesCategory && matchesSearch && isLogical;
+      // 3. Filter by price: clients (not waiter mode) only see items with price > 200
+      const hasValidPrice = isWaiterMode || (p.price !== null && p.price > 200);
+
+      return matchesCategory && matchesSearch && isLogical && hasValidPrice;
 
     }).sort((a, b) => {
       // Sort 1: Category Order (Cocina before Bebidas)
@@ -427,7 +438,12 @@ export default function POSPage() {
   );
 
   const handleConfirmInvoice = async () => {
-    if (cart.length === 0) return;
+    const errorValidation = validateOrderBeforeSubmit(cart, mesaName);
+    if (errorValidation) {
+      setErrorMsg(errorValidation);
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg("");
 
@@ -705,9 +721,15 @@ export default function POSPage() {
                 value={cliente}
                 onChange={(e) => setCliente(e.target.value)}
                 maxLength={40}
-                disabled={!!existingOrdenNu}
-                style={{ opacity: existingOrdenNu ? 0.7 : 1 }}
+                disabled={!!existingOrdenNu || (isWaiterMode && search.trim() !== "")}
+                style={{ opacity: (existingOrdenNu || (isWaiterMode && search.trim() !== "")) ? 0.6 : 1, backgroundColor: (isWaiterMode && search.trim() !== "") ? '#f3f4f6' : 'white', cursor: (isWaiterMode && search.trim() !== "") ? 'not-allowed' : 'text' }}
               />
+              {isWaiterMode && search.trim() !== "" && (
+                <div style={{ fontSize: '0.7rem', color: '#5f6368', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Nombre bloqueado durante búsqueda
+                </div>
+              )}
             </div>
           </div>
 
@@ -725,6 +747,7 @@ export default function POSPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               id="search-products"
+              aria-label="Buscar producto"
             />
           </div>
 
@@ -735,8 +758,9 @@ export default function POSPage() {
                 <button
                   key={cat}
                   className={`category-pill ${activeCategory === cat ? "active" : ""}`}
-                  onClick={() => setActiveCategory(cat)}
+                  onClick={() => { setActiveCategory(cat); setSearch(""); }}
                   id={`cat-${cat.replace(/\s/g, "-")}`}
+                  aria-pressed={activeCategory === cat}
                 >
                   {cat}
                 </button>
@@ -871,6 +895,7 @@ export default function POSPage() {
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
             style={{ textAlign: "left" }}
+            aria-live="polite"
           >
             <div className={cartStyles.sidebar}>
               <div className={cartStyles.title}>
