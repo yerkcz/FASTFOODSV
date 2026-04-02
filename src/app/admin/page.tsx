@@ -726,44 +726,61 @@ export default function AdminPortal() {
                                             </div>
                                         </div>
                                     </div>
-                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', backgroundColor: '#fcfcfc', gap: '8px' }}>
+                                    <div style={{ borderTop: '1px solid #f1f3f4', padding: '12px 16px', display: 'flex', justifyContent: 'space-between', backgroundColor: '#fcfcfc', gap: '8px', flexWrap: 'wrap' }}>
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); openAddProductsModal(group.ordenes[0]?.orden_nu); }}
                                             style={{ 
-                                                background: 'none', border: '1px solid #25d366', color: '#25d366', fontSize: '0.75rem', fontWeight: 600, 
+                                                background: 'none', border: '2px solid #25d366', color: '#25d366', fontSize: '0.8rem', fontWeight: 700, 
                                                 letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
-                                                padding: '6px 10px', borderRadius: '4px', transition: 'all 0.2s',
-                                                backgroundColor: 'white', whiteSpace: 'nowrap'
+                                                padding: '10px 14px', borderRadius: '8px', transition: 'all 0.2s',
+                                                backgroundColor: 'white', whiteSpace: 'nowrap', minHeight: '44px',
+                                                display: 'flex', alignItems: 'center', gap: '6px'
                                             }}
                                             title="Agregar productos a esta orden"
                                         >
-                                            ➕ AGREGAR
+                                            <span style={{fontSize:'1rem'}}>➕</span> AGREGAR
                                         </button>
                                         <button 
                                             onClick={(e) => unlockTable(e, group)}
                                             style={{ 
-                                                background: 'none', border: '1px solid #1a73e8', color: '#1a73e8', fontSize: '0.75rem', fontWeight: 600, 
+                                                background: 'none', border: '2px solid #1a73e8', color: '#1a73e8', fontSize: '0.8rem', fontWeight: 700, 
                                                 letterSpacing: '0.5px', textTransform: 'uppercase', cursor: 'pointer',
-                                                padding: '6px 10px', borderRadius: '4px', transition: 'all 0.2s',
-                                                backgroundColor: 'white'
+                                                padding: '10px 14px', borderRadius: '8px', transition: 'all 0.2s',
+                                                backgroundColor: 'white', minHeight: '44px',
+                                                display: 'flex', alignItems: 'center', gap: '6px'
                                             }}
                                             title="Otorgar 5 minutos de acceso para un nuevo integrante de la mesa"
                                         >
-                                            🔓 ADMITIR
+                                            <span style={{fontSize:'1rem'}}>🔓</span> ADMITIR
                                         </button>
                                         <button 
                                             onClick={(e) => closeTableGroup(e, group)}
                                             disabled={closing === targetId}
                                             style={{ 
-                                                background: 'none', border: '1px solid #d93025', color: '#d93025', fontSize: '0.75rem', fontWeight: 600, 
+                                                background: 'none', border: '2px solid #d93025', color: '#d93025', fontSize: '0.8rem', fontWeight: 700, 
                                                 letterSpacing: '0.5px', textTransform: 'uppercase', cursor: closing === targetId ? 'default' : 'pointer',
-                                                padding: '6px 12px', borderRadius: '4px', opacity: closing === targetId ? 0.5 : 1, transition: 'all 0.2s',
-                                                backgroundColor: closing === targetId ? '#fce8e6' : 'white'
+                                                padding: '10px 14px', borderRadius: '8px', opacity: closing === targetId ? 0.5 : 1, transition: 'all 0.2s',
+                                                backgroundColor: closing === targetId ? '#fce8e6' : 'white', minHeight: '44px',
+                                                display: 'flex', alignItems: 'center', gap: '6px'
                                             }}
                                         >
-                                            {closing === targetId ? "PROCESANDO..." : "COBRAR CUENTA"}
+                                            {closing === targetId ? "..." : <><span style={{fontSize:'1rem'}}>💳</span> COBRAR</>}
                                         </button>
                                     </div>
+                                    
+                                    <style dangerouslySetInnerHTML={{__html: `
+                                        @media (max-width: 480px) {
+                                          /* En móvil, botones ocupan ancho completo en 2 filas */
+                                          div[style*="borderTop: '1px solid #f1f3f4'"] button {
+                                            flex: 1 1 calc(50% - 8px) !important;
+                                            justify-content: center;
+                                            min-width: 0 !important;
+                                          }
+                                          div[style*="borderTop: '1px solid #f1f3f4'"] button:last-child {
+                                            flex: 1 1 100% !important;
+                                          }
+                                        }
+                                    `}} />
                                 </div>
                             );
                         })}
@@ -877,16 +894,32 @@ export default function AdminPortal() {
                             </div>
                             {selectedGroup.ordenes.length > 1 && <div style={{fontSize: '0.75rem', color: '#5f6368', fontWeight: 500}}>{selectedGroup.ordenes.length} comandas consolidadas</div>}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <button onClick={() => openAddProductsModal()} style={{ backgroundColor: '#25d366', color: 'white', border: 'none', borderRadius: '20px', padding: '6px 14px', fontSize: '0.75rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap' }}>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                            <button onClick={() => openAddProductsModal()} style={{ backgroundColor: '#25d366', color: 'white', border: 'none', borderRadius: '20px', padding: '10px 16px', fontSize: '0.85rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap', minHeight: '44px', boxShadow: '0 2px 8px rgba(37,211,102,0.3)' }}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                                 AGREGAR
                             </button>
                             <div title="Actualizando en tiempo real" style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: '#25d366', animation: 'pulse 2s ease-in-out infinite', flexShrink: 0 }} />
-                            <div style={{ color: '#137333', fontWeight: 800, fontSize: '1.2rem', background: '#e6f4ea', padding: '4px 12px', borderRadius: '16px' }}>
+                            <div style={{ color: '#137333', fontWeight: 800, fontSize: '1.1rem', background: '#e6f4ea', padding: '6px 14px', borderRadius: '16px' }}>
                                 {formatColones(selectedGroup.total_mesa)}
                             </div>
                         </div>
+                        
+                        <style dangerouslySetInnerHTML={{__html: `
+                            @media (max-width: 480px) {
+                              /* Header del checkout en móvil */
+                              header[style*="height: '60px'"] {
+                                flex-wrap: wrap !important;
+                                height: auto !important;
+                                padding: 12px 16px !important;
+                                gap: 12px !important;
+                              }
+                              header[style*="height: '60px'"] > div:last-child {
+                                width: 100% !important;
+                                justify-content: space-between !important;
+                              }
+                            }
+                        `}} />
                     </header>
 
                     <div style={{ padding: '16px', overflowY: 'auto', flex: 1, paddingBottom: splitMode === 'none' ? '320px' : splitMode === 'equal' ? '380px' : '340px', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
@@ -1382,6 +1415,62 @@ export default function AdminPortal() {
                 @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
                 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
                 @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+                @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+                
+                /* === RESET y BASE === */
+                * { box-sizing: border-box; }
+                
+                /* === RESPONSIVE GLOBAL ADMIN === */
+                @media (max-width: 480px) {
+                    /* Cards de mesas: 1 columna en móvil */
+                    div[style*="grid-template-columns: 'repeat(auto-fill, minmax(300px, 1fr))'"],
+                    div[style*="repeat(auto-fill, minmax(300px, 1fr))"] {
+                        grid-template-columns: 1fr !important;
+                    }
+                    
+                    /* Botones de acción en cards de mesa */
+                    div[style*="borderTop: '1px solid #f1f3f4'"] button {
+                        min-height: 44px !important;
+                        font-size: 0.8rem !important;
+                    }
+                    
+                    /* Checkout footer - asegurar botones touch-friendly */
+                    div[style*="position: fixed"] button {
+                        min-height: 48px !important;
+                        padding: 12px 16px !important;
+                        font-size: 0.9rem !important;
+                    }
+                    
+                    /* Split mode buttons */
+                    div[style*="flex:1 1 80px"],
+                    div[style*="flex: '1 1 80px'"] {
+                        flex: 1 1 100% !important;
+                        min-height: 48px;
+                    }
+                    
+                    /* Header del checkout: ajustar en móvil */
+                    header {
+                        flex-wrap: wrap !important;
+                        height: auto !important;
+                        padding: 12px 16px !important;
+                        gap: 12px !important;
+                    }
+                }
+                
+                /* === Mejorar scroll en móvil === */
+                @media (max-width: 768px) {
+                    div[style*="overflow-y: auto"],
+                    div[style*="overflowY: 'auto'"] {
+                        -webkit-overflow-scrolling: touch;
+                        overscroll-behavior: contain;
+                    }
+                    
+                    /* Inputs más grandes en táctil */
+                    input[type="number"], input[type="text"], select {
+                        min-height: 48px !important;
+                        font-size: 16px !important;
+                    }
+                }
             `}} />
             {/* Reassign Item Modal */}
             {reassignModal && (
@@ -1512,7 +1601,7 @@ export default function AdminPortal() {
                                         </div>
                                     ))}
                                 </div>
-                                <button onClick={submitAddedProducts} disabled={addingProducts} style={{ width: '100%', padding: '12px', backgroundColor: addingProducts ? '#ccc' : '#25d366', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 700, cursor: addingProducts ? 'default' : 'pointer' }}>
+                                <button onClick={submitAddedProducts} disabled={addingProducts} style={{ width: '100%', padding: '14px', backgroundColor: addingProducts ? '#ccc' : '#25d366', color: 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 700, cursor: addingProducts ? 'default' : 'pointer', minHeight: '50px', boxShadow: addingProducts ? 'none' : '0 4px 12px rgba(37,211,102,0.3)' }}>
                                     {addingProducts ? 'Agregando...' : `Agregar ${selectedAddProducts.reduce((s, p) => s + p.quantity, 0)} items`}
                                 </button>
                             </div>
