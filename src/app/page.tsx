@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import Image from "next/image";
 import { generateInvoice } from "@/lib/generateInvoice";
 import { type Product, type CartItem } from "@/types";
@@ -46,9 +47,11 @@ function validateOrderBeforeSubmit(items: CartItem[], tableId: string): string |
 }
 
 export default function POSPage() {
+  const router = useRouter();
   const [mesaName, setMesaName] = useState("Mesa --");
   const [productsList, setProductsList] = useState<Product[]>([]);
   const [isWaiterMode, setIsWaiterMode] = useState(false);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Initialize table from URL param (e.g. ?mesa=9&nombre=Juan)
   useEffect(() => {
@@ -59,7 +62,7 @@ export default function POSPage() {
       const waiterParam = params.get("waiter_mode");
       
       if (!mesaParam && waiterParam !== "true") {
-        window.location.replace('/inicio');
+        router.replace('/inicio');
         return;
       }
 
@@ -82,6 +85,15 @@ export default function POSPage() {
         if (savedName) setCliente(savedName);
       }
     }
+  }, []);
+
+  // Cleanup redirect timer on unmount to prevent ghost redirect
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
   }, []);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -502,8 +514,15 @@ export default function POSPage() {
       clearCart();
       setOrderSuccess(ordenNu);
 
-      // Auto-dismiss success after 5 seconds
-      setTimeout(() => setOrderSuccess(null), 5000);
+      // Waiter mode: redirect to /mesas after 2s so staff sees active tables
+      if (isWaiterMode) {
+        redirectTimerRef.current = setTimeout(() => {
+          router.push('/mesas');
+        }, 2000);
+      } else {
+        // Auto-dismiss success after 5 seconds for self-order mode
+        setTimeout(() => setOrderSuccess(null), 5000);
+      }
 
       // Lock the table now that an order was submitted successfully
       setIsTableOccupied(true);
@@ -711,26 +730,22 @@ export default function POSPage() {
                 {mesaName}
               </div>
             </div>
-            <div className="order-field">
-              <label htmlFor="input-cliente">Nombre (opcional)</label>
-              <input
-                id="input-cliente"
-                type="text"
-                placeholder="Tu nombre..."
-                autoComplete="off"
-                value={cliente}
-                onChange={(e) => setCliente(e.target.value)}
-                maxLength={40}
-                disabled={!!existingOrdenNu || (isWaiterMode && search.trim() !== "")}
-                style={{ opacity: (existingOrdenNu || (isWaiterMode && search.trim() !== "")) ? 0.6 : 1, backgroundColor: (isWaiterMode && search.trim() !== "") ? '#f3f4f6' : 'white', cursor: (isWaiterMode && search.trim() !== "") ? 'not-allowed' : 'text' }}
-              />
-              {isWaiterMode && search.trim() !== "" && (
-                <div style={{ fontSize: '0.7rem', color: '#5f6368', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  Nombre bloqueado durante búsqueda
-                </div>
-              )}
-            </div>
+            {!isWaiterMode && (
+              <div className="order-field">
+                <label htmlFor="input-cliente">Nombre (opcional)</label>
+                <input
+                  id="input-cliente"
+                  type="text"
+                  placeholder="Tu nombre..."
+                  autoComplete="off"
+                  value={cliente}
+                  onChange={(e) => setCliente(e.target.value)}
+                  maxLength={40}
+                  disabled={!!existingOrdenNu}
+                  style={{ opacity: existingOrdenNu ? 0.6 : 1 }}
+                />
+              </div>
+            )}
           </div>
 
           {/* ===== SEARCH ===== */}
@@ -912,6 +927,29 @@ export default function POSPage() {
                 >
                   {mesaName}
                 </span>
+                <button
+                  onClick={() => setCartOpen(false)}
+                  aria-label="Cerrar vista de orden"
+                  style={{
+                    marginLeft: '12px',
+                    width: '40px',
+                    height: '40px',
+                    minWidth: '40px',
+                    borderRadius: '50%',
+                    border: '2px solid #dce8e0',
+                    backgroundColor: '#f7faf8',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '1.1rem',
+                    color: '#5f6368',
+                    flexShrink: 0,
+                    touchAction: 'manipulation',
+                  }}
+                >
+                  ✕
+                </button>
               </div>
 
               <div className={cartStyles.items}>
@@ -1068,18 +1106,42 @@ export default function POSPage() {
 
       {/* ===== SUCCESS SCREEN ===== */}
       {orderSuccess && (
-        <div className="order-success-overlay">
+        <div className="order-success-overlay" role="status" aria-live="assertive">
           <div className="order-success-icon">
             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           </div>
           <h2 className="order-success-title">
-            {isOwner ? "¡Artículos Agregados!" : "¡Orden Recibida!"}
+            {isOwner ? "¡Artículos Agregados!" : "¡Comanda Enviada!"}
           </h2>
           <p className="order-success-sub">
-            {isOwner ? "Los artículos se sumaron a tu cuenta." : `Tu pedido #${orderSuccess} ha sido enviado a la cocina.`}
+            {isWaiterMode
+              ? `Orden #${orderSuccess} en cocina. Volviendo a Mesas...`
+              : isOwner
+                ? "Los artículos se sumaron a tu cuenta."
+                : `Tu pedido #${orderSuccess} ha sido enviado a la cocina.`
+            }
           </p>
+          {isWaiterMode && (
+            <>
+              <div className="order-success-progress" aria-hidden="true" />
+              <button
+                onClick={() => {
+                  if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
+                  router.push('/mesas');
+                }}
+                style={{
+                  marginTop: '16px', padding: '12px 32px', background: 'rgba(255,255,255,0.15)',
+                  border: '2px solid rgba(255,255,255,0.4)', borderRadius: '8px',
+                  color: 'white', fontSize: '0.9rem', fontWeight: 700, cursor: 'pointer',
+                  touchAction: 'manipulation'
+                }}
+              >
+                Ir a Mesas →
+              </button>
+            </>
+          )}
         </div>
       )}
       {/* ===== WAITER ADD ITEM MODAL ===== */}
@@ -1094,12 +1156,13 @@ export default function POSPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f7faf8', padding: '8px', borderRadius: '12px', border: '1px solid #dce8e0', width: 'fit-content' }}>
                 <button 
                   onClick={() => setWaiterQty(Math.max(1, waiterQty - 1))}
-                  style={{ width: '40px', height: '40px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer' }}
+                  aria-label="Disminuir cantidad"
+                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
                 >−</button>
                 <span style={{ fontSize: '1.2rem', fontWeight: 800, minWidth: '24px', textAlign: 'center' }}>{waiterQty}</span>
                 <button 
                   onClick={() => setWaiterQty(waiterQty + 1)}
-                  style={{ width: '40px', height: '40px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer' }}
+                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
                 >+</button>
               </div>
             </div>

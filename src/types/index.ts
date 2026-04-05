@@ -17,6 +17,11 @@ export type CartItem = Product & {
 
 export type OrderStatus = 'pendiente' | 'en_cocina' | 'listo' | 'entregado';
 
+export type OrderMeta = {
+  mesa: string;
+  cliente: string;
+};
+
 export type Order = {
   id: string;
   tableId: string | number;

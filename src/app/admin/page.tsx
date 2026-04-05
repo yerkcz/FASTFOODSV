@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic';
 import { formatTime, getElapsedMins, getTimeColor, getTimeBg, getUrgencyBadge, getElapsedLabel } from "@/lib/timeUtils";
 
 const AnalyticsDashboard = dynamic(() => import('@/components/analytics/AnalyticsDashboard'), { ssr: false });
+import { type Product, type CartItem } from "@/types";
 
 type MesaGroup = {
     mesa: string | null;
@@ -28,16 +29,7 @@ type OrderItem = {
     Orden_Nu: string;
 };
 
-type Product = {
-    id: string;
-    name: string;
-    description: string;
-    price: number;
-    category: string;
-    image_url: string;
-};
 
-type CartItem = Product & { quantity: number; notes: string };
 
 function formatColones(amount: number): string {
   const rounded = Math.round(amount).toString();
@@ -573,7 +565,7 @@ export default function AdminPortal() {
                     COMANDAR
                 </div>
                 {/* Salir Button */}
-                <Link href="/" style={{ color: 'rgba(238,247,240,0.7)', textDecoration: 'none' }}>
+                <Link href="/inicio" style={{ color: 'rgba(238,247,240,0.7)', textDecoration: 'none' }}>
                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 </Link>
             </div>

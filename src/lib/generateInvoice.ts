@@ -1,11 +1,6 @@
 import { jsPDF } from "jspdf";
 
-import { type CartItem } from "@/types";
-
-export type OrderMeta = {
-    mesa: string;
-    cliente: string;
-};
+import { type CartItem, type OrderMeta } from "@/types";
 
 function formatColones(amount: number): string {
     const rounded = Math.round(amount).toString();
@@ -163,12 +158,13 @@ export async function generateInvoice(
             align: "right",
         });
 
-        if (item.notas) {
+        const noteText = item.notas || item.notes;
+        if (noteText) {
             y += 4;
             doc.setFontSize(8);
             doc.setFont("helvetica", "italic");
             doc.setTextColor(139, 148, 158);
-            doc.text(`* ${item.notas}`, colNameX + 2, y);
+            doc.text(`* ${noteText}`, colNameX + 2, y);
             doc.setFontSize(10);
             doc.setFont("helvetica", "normal");
         }

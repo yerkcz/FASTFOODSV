@@ -49,7 +49,7 @@ export default function EntregadosPage() {
                 <div onClick={fetchOrders} style={{ cursor: 'pointer' }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg></div>
             </header>
 
-            <div style={{ paddingTop: '70px', paddingBottom: '70px', padding: '70px 16px 70px', maxWidth: '800px', margin: '0 auto' }}>
+            <div style={{ paddingTop: '70px', paddingBottom: '90px', padding: '70px 16px 90px', maxWidth: '800px', margin: '0 auto' }}>
                 {/* Summary */}
                 <div style={{ backgroundColor: 'white', borderRadius: '8px', padding: '16px', marginBottom: '16px', boxShadow: '0 1px 2px rgba(0,0,0,0.08)', textAlign: 'center' }}>
                     <div style={{ fontSize: '0.7rem', color: '#5f6368', textTransform: 'uppercase' }}>Total Vendido Hoy ({orders.length} órdenes)</div>
@@ -82,14 +82,6 @@ export default function EntregadosPage() {
                     </div>
                 )}
             </div>
-
-            <nav style={{ position: 'fixed', bottom: 0, left: 0, right: 0, height: '56px', backgroundColor: 'white', borderTop: '1px solid #e0e0e0', display: 'flex', justifyContent: 'space-around', alignItems: 'center', zIndex: 1000, fontSize: '0.7rem' }}>
-                <Link href="/mesas" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#5f6368', textDecoration: 'none' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3h18v18H3zM3 9h18M9 21V9"/></svg><span style={{ marginTop: '2px' }}>Mesas</span></Link>
-                <Link href="/cocina" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#5f6368', textDecoration: 'none' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg><span style={{ marginTop: '2px' }}>Cocina</span></Link>
-                <Link href="/inicio" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#5f6368', textDecoration: 'none' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg><span style={{ marginTop: '2px' }}>Inicio</span></Link>
-                <Link href="/bebidas-frias" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#5f6368', textDecoration: 'none' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M8 2v4M12 2v4M6 6h12l-1 14H7L6 6z"/></svg><span style={{ marginTop: '2px' }}>Bebidas</span></Link>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', color: '#1e8e3e' }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3"/></svg><span style={{ marginTop: '2px', fontWeight: 600 }}>Entregas</span></div>
-            </nav>
         </div>
     );
 }

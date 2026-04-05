@@ -3,7 +3,8 @@
   --foreground: #0d1117;
 
   /* Greens — premium dark green palette */
-  --primary: #047857; /* Adjusted for WCAG AA contrast (was #059669) */
+  --primary: #047857;
+  /* Adjusted for WCAG AA contrast (was #059669) */
   --primary-hover: #065f46;
   --primary-dark: #064e3b;
   --primary-light: rgba(4, 120, 87, 0.08);
@@ -95,9 +96,14 @@ a {
 }
 
 /* Minimum touch target: apply to all buttons that are not
-   explicitly sized differently (e.g. icon-only buttons). */
-button:not([class*='no-min']):not(nav button) {
+   explicitly sized differently. KDS pages use their own compact sizes. */
+button:not([class*='no-min']):not(nav button):not(.reorder-btn):not(.kds-tab) {
   min-height: 44px;
+}
+/* Override: KDS row containers — buttons inside must be compact */
+.kds-table-row button,
+.kds-sub-row button {
+  min-height: auto !important;
 }
 
 /* Icon-only buttons pattern */
@@ -112,6 +118,7 @@ button:not([class*='no-min']):not(nav button) {
 
 /* Accesibilidad: Respetar preferencia de movimiento reducido */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -153,7 +160,8 @@ textarea {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 0 16px 160px; /* Expanded padding so grid items don't hide behind the elevated cart bar */
+  padding: 0 16px 160px;
+  /* Expanded padding so grid items don't hide behind the elevated cart bar */
   overflow-y: auto;
   min-width: 0;
 }
@@ -336,7 +344,7 @@ textarea {
   font-size: var(--text-sm);
   font-weight: 500;
   color: var(--text-secondary);
-  
+
   /* Touch targets minimum size */
   min-height: 44px;
   min-width: 44px;
@@ -385,7 +393,8 @@ textarea {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  z-index: 1100; /* Elevated > 1000 to cover the global Navigation component */
+  z-index: 1100;
+  /* Elevated > 1000 to cover the global Navigation component */
   animation: fadeIn 0.25s ease;
 }
 
@@ -416,7 +425,7 @@ textarea {
 }
 
 .modal-content p {
-  font-size: 0.9rem;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   margin-bottom: 4px;
 }
@@ -516,8 +525,17 @@ textarea {
 }
 
 @keyframes pulse {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50%       { opacity: 0.4; transform: scale(0.75); }
+
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
 }
 
 @keyframes spin {
@@ -542,24 +560,31 @@ textarea {
   0% {
     background-position: -200% 0;
   }
+
   100% {
     background-position: 200% 0;
   }
 }
 
 @keyframes float {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translateY(0);
   }
+
   50% {
     transform: translateY(-4px);
   }
 }
 
 @keyframes borderGlow {
-  0%, 100% {
+
+  0%,
+  100% {
     border-color: rgba(28, 198, 114, 0.2);
   }
+
   50% {
     border-color: rgba(28, 198, 114, 0.5);
   }
@@ -606,32 +631,46 @@ textarea {
   width: 5px;
   height: 5px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: rgba(28, 198, 114, 0.22);
   border-radius: 6px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(28, 198, 114, 0.42);
 }
+
 /* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: rgba(28, 198, 114, 0.25) transparent;
 }
+
 /* iOS/Android — hide custom scrollbar, keep native momentum */
 @media (pointer: coarse) {
-  ::-webkit-scrollbar { display: none; }
-  * { scrollbar-width: none; }
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  * {
+    scrollbar-width: none;
+  }
 }
+
 /* Prevent layout shift when scrollbar appears/disappears */
 html {
   scrollbar-gutter: stable;
 }
+
 /* Smooth momentum scrolling on iOS for all scrollable containers */
-.items, .cart-bottom-sheet, .modal-body {
+.items,
+.cart-bottom-sheet,
+.modal-body {
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
 }
@@ -652,7 +691,7 @@ html {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.18), 0 8px 32px rgba(0,0,0,0.15);
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.18), 0 8px 32px rgba(0, 0, 0, 0.15);
   animation: slideUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   border: 1px solid rgba(28, 198, 114, 0.2);
   border-radius: 16px;
@@ -755,20 +794,20 @@ html {
 }
 
 .success-toast .toast-title {
-  font-size: 1.1rem;
+  font-size: var(--text-lg);
   font-weight: 700;
   margin-bottom: 4px;
 }
 
 .success-toast .toast-order {
-  font-size: 0.85rem;
+  font-size: var(--text-sm);
   color: #ffb703;
 }
 
 /* ====== ERROR INLINE ====== */
 .error-inline {
   color: var(--danger);
-  font-size: 0.82rem;
+  font-size: var(--text-xs);
   text-align: center;
   background: var(--danger-soft);
   padding: 10px 14px;
@@ -935,9 +974,21 @@ html {
 }
 
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  20%, 60% { transform: translateX(-8px); }
-  40%, 80% { transform: translateX(8px); }
+
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+
+  20%,
+  60% {
+    transform: translateX(-8px);
+  }
+
+  40%,
+  80% {
+    transform: translateX(8px);
+  }
 }
 
 .pin-hint {
@@ -1035,8 +1086,15 @@ html {
 
 /* -- Animation: sidebar slide-in -- */
 @keyframes slideInLeft {
-  from { transform: translateX(-100%); opacity: 0; }
-  to   { transform: translateX(0);     opacity: 1; }
+  from {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* -- Staff page body lock when sidebar open -- */
@@ -1064,19 +1122,18 @@ body.sidebar-open {
     grid-template-columns: repeat(3, 1fr);
     gap: 16px;
   }
-  .inicio-grid > a > div {
+
+  .inicio-grid>a>div {
     min-height: 130px !important;
   }
 }
 
 /* ====== SKELETON LOADER ====== */
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    #f0f0f0 25%,
-    #e0e0e0 50%,
-    #f0f0f0 75%
-  );
+  background: linear-gradient(90deg,
+      #f0f0f0 25%,
+      #e0e0e0 50%,
+      #f0f0f0 75%);
   background-size: 200% 100%;
   animation: shimmer 1.4s ease-in-out infinite;
   border-radius: 8px;
@@ -1103,7 +1160,7 @@ body.sidebar-open {
   /* Base (mobile): compact */
   padding: 8px 12px;
   padding-bottom: max(8px, env(safe-area-inset-bottom));
-  box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+  box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
   z-index: 500;
 }
 
@@ -1130,10 +1187,24 @@ body.sidebar-open {
     padding: 12px 16px;
     padding-bottom: max(12px, env(safe-area-inset-bottom));
   }
-  .checkout-footer .totals-row { font-size: 0.85rem; }
-  .checkout-footer .totals-total { font-size: 1.1rem; }
-  .checkout-footer .payment-btn { padding: 8px; font-size: 0.8rem; }
-  .checkout-footer .cobrar-btn { padding: 12px; font-size: 0.9rem; }
+
+  .checkout-footer .totals-row {
+    font-size: 0.85rem;
+  }
+
+  .checkout-footer .totals-total {
+    font-size: 1.1rem;
+  }
+
+  .checkout-footer .payment-btn {
+    padding: 8px;
+    font-size: 0.8rem;
+  }
+
+  .checkout-footer .cobrar-btn {
+    padding: 12px;
+    font-size: 0.9rem;
+  }
 }
 
 /* ====== KDS TABLE — Responsive Columns ====== */
@@ -1152,11 +1223,16 @@ body.sidebar-open {
 }
 
 .kds-col-mesa,
-.kds-col-notas { display: none !important; }
+.kds-col-notas {
+  display: none !important;
+}
 
 /* Tablet vertical (481px+): show mesa column */
 @media (min-width: 481px) {
-  .kds-col-mesa { display: block !important; }
+  .kds-col-mesa {
+    display: block !important;
+  }
+
   .kds-table-header,
   .kds-table-row {
     grid-template-columns: 1fr 70px 65px;
@@ -1166,7 +1242,10 @@ body.sidebar-open {
 
 /* Desktop (901px+): show notas column too */
 @media (min-width: 901px) {
-  .kds-col-notas { display: block !important; }
+  .kds-col-notas {
+    display: block !important;
+  }
+
   .kds-table-header,
   .kds-table-row {
     grid-template-columns: 1fr 80px 70px 70px;
@@ -1193,7 +1272,7 @@ body.sidebar-open {
 .confirm-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.5);
+  background: rgba(0, 0, 0, 0.5);
   backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
   z-index: 9000;
@@ -1210,7 +1289,7 @@ body.sidebar-open {
   padding: 24px;
   max-width: 360px;
   width: 100%;
-  box-shadow: 0 8px 40px rgba(0,0,0,0.2);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.2);
   animation: scaleIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   text-align: center;
 }
@@ -1260,13 +1339,13 @@ body.sidebar-open {
   font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(234,67,53,0.3);
+  box-shadow: 0 4px 12px rgba(234, 67, 53, 0.3);
   transition: all 0.15s;
 }
 
 .confirm-btn-danger:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(234,67,53,0.4);
+  box-shadow: 0 6px 18px rgba(234, 67, 53, 0.4);
 }
 
 .confirm-btn-primary {
@@ -1279,16 +1358,27 @@ body.sidebar-open {
   font-size: 0.9rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(37,211,102,0.3);
+  box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);
   transition: all 0.15s;
 }
 
 /* ====== LISTO BUTTON ANIMATION ====== */
 @keyframes listoConfirm {
-  0%   { transform: scale(1); }
-  40%  { transform: scale(1.25); }
-  70%  { transform: scale(0.92); }
-  100% { transform: scale(1); }
+  0% {
+    transform: scale(1);
+  }
+
+  40% {
+    transform: scale(1.25);
+  }
+
+  70% {
+    transform: scale(0.92);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .btn-listo-confirm {
@@ -1308,7 +1398,7 @@ body.sidebar-open {
 input.has-error,
 select.has-error {
   border-color: #d93025 !important;
-  box-shadow: 0 0 0 2px rgba(217,48,37,0.15) !important;
+  box-shadow: 0 0 0 2px rgba(217, 48, 37, 0.15) !important;
 }
 
 /* ====== SUCCESS SCREEN (post-order) ====== */
@@ -1329,19 +1419,19 @@ select.has-error {
 .order-success-icon {
   width: 88px;
   height: 88px;
-  background: rgba(37,211,102,0.2);
+  background: rgba(37, 211, 102, 0.2);
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 24px;
   animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) 0.1s both;
-  border: 2px solid rgba(37,211,102,0.4);
+  border: 2px solid rgba(37, 211, 102, 0.4);
 }
 
 .order-success-title {
   font-family: 'Roboto', sans-serif;
-  font-size: 1.6rem;
+  font-size: var(--text-2xl);
   font-weight: 800;
   color: white;
   margin-bottom: 8px;
@@ -1349,11 +1439,74 @@ select.has-error {
 }
 
 .order-success-sub {
-  font-size: 1rem;
-  color: rgba(255,255,255,0.75);
+  font-size: var(--text-base);
+  color: rgba(255, 255, 255, 0.75);
   animation: fadeInUp 0.4s ease 0.3s both;
   max-width: 280px;
   line-height: 1.5;
+}
+
+/* Progress bar shown in waiter mode before redirect */
+.order-success-progress {
+  width: 180px;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  margin-top: 24px;
+  overflow: hidden;
+  position: relative;
+}
+
+.order-success-progress::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  height: 100%;
+  width: 100%;
+  background: #25d366;
+  border-radius: 2px;
+  animation: progressShrink 2s linear forwards;
+  transform-origin: left;
+}
+
+@keyframes progressShrink {
+  from { transform: scaleX(1); }
+  to   { transform: scaleX(0); }
+}
+
+/* ====== STAFF TOAST — Post-cobro feedback ====== */
+.staff-toast {
+  position: fixed;
+  top: 72px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5000;
+  background: linear-gradient(135deg, #0f4a28, #137333);
+  color: white;
+  padding: 14px 24px;
+  border-radius: 40px;
+  box-shadow: 0 8px 32px rgba(19, 115, 51, 0.45);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(37, 211, 102, 0.35);
+  animation: slideDown 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  white-space: nowrap;
+  max-width: calc(100vw - 32px);
+}
+
+@keyframes slideDown {
+  from {
+    transform: translateX(-50%) translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(-50%) translateY(0);
+    opacity: 1;
+  }
 }
 
 .add-product-btn {
@@ -1372,7 +1525,7 @@ select.has-error {
   align-items: center;
   gap: 6px;
   z-index: 10;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
   transition: transform 0.1s, background-color 0.1s;
 }
 
