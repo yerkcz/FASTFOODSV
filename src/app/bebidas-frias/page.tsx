@@ -203,8 +203,28 @@ const KDS_SUB_STYLES = `
     }
   }
 
-  /* ========== TABLET/Desktop (≥601px) ========== */
-  @media (min-width: 601px) {
+  /* ========== TABLET (601px - 1024px) ========== */
+  @media (min-width: 601px) and (max-width: 1024px) {
+    .kds-sub-header, .kds-sub-row {
+      grid-template-columns: 36px 44px 1fr 72px 68px;
+      gap: 8px;
+      padding: 6px 12px;
+    }
+    .kds-sub-row { min-height: 38px; }
+    .kds-sub-row button:first-child {
+      width: 32px !important;
+      height: 32px !important;
+      min-width: 32px;
+      min-height: 32px !important;
+    }
+    .kds-sub-header {
+      font-size: 0.65rem;
+      padding: 6px 12px;
+    }
+  }
+
+  /* ========== TABLET/Desktop (≥1025px) ========== */
+  @media (min-width: 1025px) {
     .kds-sub-header, .kds-sub-row {
       grid-template-columns: 30px 36px 1fr 64px 60px;
       gap: 6px;
