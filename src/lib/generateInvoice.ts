@@ -16,7 +16,6 @@ export async function generateInvoice(
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 25;
-    const contentWidth = pageWidth - margin * 2;
 
     // Col X positions
     const colNameX = margin;

@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState, useRef, useCallback } from "react";
 import Image from "next/image";
 import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
+import { useAdaptivePolling } from "@/lib/useAdaptivePolling";
 const CHEF_ICON = "M12 3c-1.2 5.4-6 6-6 12h12c0-6-4.8-6.6-6-12zM6 17h12M10 21v-4M14 21v-4";
 
 type OrderItem = {
@@ -32,6 +33,7 @@ export default function KitchenDisplaySystem() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<"Proceso de comandas" | "Bebidas Frías" | "Bebidas Calientes">("Proceso de comandas");
   const [customOrder, setCustomOrder] = useState<string[]>([]);
+  const API_KEY = process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY || "";
   
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -42,7 +44,7 @@ export default function KitchenDisplaySystem() {
 
   const fetchOrders = useCallback(async () => {
     try {
-      const res = await fetch("/api/kitchen/orders");
+      const res = await fetch("/api/kitchen/orders", { headers: { "x-api-key": API_KEY } });
       if (res.ok) {
         const data = await res.json();
         const newTotalPendingItems = data.orders.reduce((acc: number, o: Order) => 
@@ -62,10 +64,9 @@ export default function KitchenDisplaySystem() {
     }
   }, [lastOrdersCount, soundEnabled]);
 
+  // Fetch inicial
   useEffect(() => {
     fetchOrders();
-    const interval = setInterval(fetchOrders, 5000);
-    return () => clearInterval(interval);
   }, [fetchOrders]);
 
   const toggleItemReady = async (itemId: string) => {
@@ -78,7 +79,7 @@ export default function KitchenDisplaySystem() {
     try {
         await fetch("/api/kitchen/mark-ready", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
             body: JSON.stringify({ itemId })
         });
         setTimeout(fetchOrders, 500);
@@ -102,6 +103,14 @@ export default function KitchenDisplaySystem() {
       .filter(item => !item.listo && categoryMatch(item.categoria, activeTab))
       .map(item => ({ ...item, orderCliente: order.cliente, ordenNu: order.orden_nu }))
   );
+
+  // Polling adaptativo: 5s activo, 15s idle, 30s background
+  useAdaptivePolling(fetchOrders, {
+    activeIntervalMs: 5000,
+    idleIntervalMs: 15000,
+    backgroundIntervalMs: 30000,
+    hasActiveData: pendingItemsRaw.length > 0,
+  });
 
   // Apply custom order if set
   const pendingItemsForTab = customOrder.length > 0

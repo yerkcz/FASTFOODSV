@@ -31,23 +31,23 @@ export async function GET(request: Request) {
             return NextResponse.json({ error: 'Invalid or missing "mesa" parameter' }, { status: 400 });
         }
 
-        // 4. Check database for an open order for this table
-        // We select the FIRST host order (ORDER BY Fecha ASC) to maintain the original session lock,
-        // but we fetch the MAX(Ultima_Actividad) of ALL participants at the table.
+        // 4. Check database — query consolidada (1 query en vez de 3 sub-selects)
+        // Usa aggregate functions para obtener todo en una sola pasada
         const res = await query(
             `SELECT 
-                "Orden_Nu", "session_token", "Fecha",
-                (SELECT MAX("Fecha_Desbloqueo") FROM "CLIENTES" WHERE "Mesa" = $1 AND "Estado" = 'Abierta') as "Fecha_Desbloqueo",
-                (SELECT MAX("Ultima_Actividad") FROM "CLIENTES" WHERE "Mesa" = $1 AND "Estado" = 'Abierta') as "Ultima_Actividad"
+                MIN("Orden_Nu") as "Orden_Nu",
+                MIN("session_token") as "session_token",
+                MIN("Fecha") as "Fecha",
+                MAX("Fecha_Desbloqueo") as "Fecha_Desbloqueo",
+                MAX("Ultima_Actividad") as "Ultima_Actividad"
              FROM "CLIENTES" 
              WHERE "Mesa" = $1 
-             AND "Estado" = 'Abierta'
-             ORDER BY "Fecha" ASC
-             LIMIT 1`,
+             AND "Estado" = 'Abierta'`,
             [mesa]
         );
 
-        const isOccupied = res.rows.length > 0;
+        // Aggregate siempre retorna 1 row; si no hay datos, Orden_Nu es null
+        const isOccupied = res.rows.length > 0 && res.rows[0].Orden_Nu !== null;
 
         if (!isOccupied) {
             return NextResponse.json(

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { checkRateLimit, validateApiKey, validateOrderPayload, checkOperatingHours, timingSafeCompare, validateGuestToken } from '@/lib/security';
 import { refreshAppSheetCache } from '@/lib/appsheet';
+import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export async function POST(request: Request) {
     try {
@@ -134,7 +135,11 @@ export async function POST(request: Request) {
             // Commit the transaction
             await client.query('COMMIT');
 
-            // 7. Force AppSheet to refresh its cache from Neon (fire and forget)
+            // 7. Invalidar caches para que KDS y mesas vean los nuevos items
+            cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+            cache.invalidate(CACHE_KEYS.TABLES_OPEN);
+
+            // 7b. Force AppSheet to refresh its cache from Neon (fire and forget)
             refreshAppSheetCache().catch(err =>
                 console.error('AppSheet refresh error:', err)
             );

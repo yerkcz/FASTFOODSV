@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { refreshAppSheetCache } from '@/lib/appsheet';
+import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export async function POST(request: Request) {
     try {
@@ -69,6 +70,8 @@ export async function POST(request: Request) {
 
             await client.query('COMMIT');
 
+            cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+            cache.invalidate(CACHE_KEYS.TABLES_OPEN);
             refreshAppSheetCache().catch(console.error);
 
             return NextResponse.json({

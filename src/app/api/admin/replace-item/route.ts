@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query } from '@/lib/db';
 import { refreshAppSheetCache } from '@/lib/appsheet';
+import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export async function POST(request: Request) {
     try {
@@ -60,7 +61,9 @@ export async function POST(request: Request) {
             [newArticulo, newPrice, newTotal, finalCantidad, nota || null, itemId]
         );
 
-        // 5. Sync AppSheet
+        // 5. Invalidar caches + Sync AppSheet
+        cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+        cache.invalidate(CACHE_KEYS.TABLES_OPEN);
         refreshAppSheetCache().catch(console.error);
 
         return NextResponse.json({

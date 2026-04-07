@@ -168,6 +168,11 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const bestDay = trendsData.weekdays?.reduce((max: any, d: any) => d.ingresos > (max?.ingresos || 0) ? d : max, null);
   const paymentTotals = trendsData.payments?.reduce((acc: number, p: any) => acc + p.ingresos, 0) || 1;
 
+  // -- NEW: Inteligencia de Negocio & Variables --
+  const validTurnovers = trendsData.tableTurnover?.filter((t: any) => t.mesa && t.mins_promedio > 0) || [];
+  const turnoverPromedio = validTurnovers.length > 0 ? (validTurnovers.reduce((acc: number, t: any) => acc + t.mins_promedio, 0) / validTurnovers.length) : 0;
+  const topCrossSell = trendsData.basket?.[0]; // {producto_a, producto_b, frecuencia}
+
   // ===================== GRÁFICOS =====================
   
   // Tendencia de Ingresos
@@ -320,6 +325,39 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
       </div>
 
+      {/* ===================== SMART INSIGHTS ===================== */}
+      <div style={{ background: 'linear-gradient(135deg, #fef7e1 0%, #fffbf0 100%)', padding: '24px', borderRadius: '16px', marginBottom: '24px', border: '1px solid #fce8b2', boxShadow: '0 4px 12px rgba(251,188,4,0.15)' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', color: '#e37400', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span>🧠</span> Inteligencia Analítica
+        </h3>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+          
+          <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #34a853', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#34a853', textTransform: 'uppercase', marginBottom: '4px' }}>Rotación Operativa</div>
+            <div style={{ fontSize: '0.95rem', color: '#202124' }}>
+              {turnoverPromedio > 0 
+                ? <>En promedio cada mesa tarda <strong>{Math.round(turnoverPromedio)} minutos</strong>. {turnoverPromedio > 90 ? ' Considera agilizar el servicio en turnos fuertes.' : ' ¡Excelente ritmo de atención!'}</>
+                : 'Todavía no hay suficientes datos para medir la velocidad de las mesas.'}
+            </div>
+          </div>
+
+          <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #1a73e8', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1a73e8', textTransform: 'uppercase', marginBottom: '4px' }}>Mejores Oportunidades</div>
+            <div style={{ fontSize: '0.95rem', color: '#202124' }}>
+              Tu pico de ventas ocurre a las <strong>{peakHour ? peakHour.hora : '00'}:00</strong>. Asegúrate de tener al staff preparado a esa hora.
+              {bestDay && <> Tu mejor día históricamente ha sido el <strong>{DAYS_ES[bestDay.dia_num] || bestDay.dia}</strong>.</>}
+            </div>
+          </div>
+
+          {topCrossSell && (
+            <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #9334e6', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9334e6', textTransform: 'uppercase', marginBottom: '4px' }}>Potencial de Combo</div>
+              <div style={{ fontSize: '0.95rem', color: '#202124' }}>El <strong>{topCrossSell.producto_a.substring(0,25)}</strong> se vende mucho junto con <strong>{topCrossSell.producto_b.substring(0,25)}</strong>. ¡Anima a los meseros a ofrecerlos juntos!</div>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ===================== KPI CARDS ===================== */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
         
@@ -383,6 +421,16 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             comandas/día <span style={{ color: kpis.coef_variacion > 50 ? COLORS.danger : COLORS.success, fontWeight: 600 }}>
               (variación: {kpis.coef_variacion}%)
             </span>
+          </div>
+        </div>
+
+        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div>
+            <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⏱️ Tiempo en Mesa</div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#00bcd4', marginTop: '4px' }}>{Math.round(turnoverPromedio)}<span style={{fontSize: '1rem'}}>'</span></div>
+          </div>
+          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>
+            promedio general de min.
           </div>
         </div>
       </div>
@@ -590,6 +638,81 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             }
           }} />
         </div>
+      </div>
+
+      {/* ===================== NEW SECTIONS: Market Basket & Table Turnover ===================== */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+        
+        {/* CROSS-SELLING (MARKET BASKET) */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>🛒 Productos Comprados Juntos</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Los "Combos Naturales" de tus clientes</p>
+            </div>
+            <TooltipCard icon="💡" title="Upselling">
+              Entrena a tus meseros para ofrecer mágicamente el Segundo cuando el cliente pide el Primero.
+            </TooltipCard>
+          </div>
+          {trendsData.basket?.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Aún no hay suficientes datos históricos.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
+              {trendsData.basket?.slice(0,8).map((b: any, i: number) => (
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #f1f3f4' }}>
+                  <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ flex: 1, textAlign: 'right', fontWeight: 700, color: '#1a73e8', fontSize: '0.85rem' }}>{b.producto_a.length > 22 ? b.producto_a.substring(0,20)+'..' : b.producto_a}</div>
+                    <div style={{ background: '#e8f0fe', padding: '4px', borderRadius: '50%', color: '#1a73e8', display: 'flex', flexShrink: 0 }}>
+                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+                    </div>
+                    <div style={{ flex: 1, textAlign: 'left', fontWeight: 700, color: '#1a73e8', fontSize: '0.85rem' }}>{b.producto_b.length > 22 ? b.producto_b.substring(0,20)+'..' : b.producto_b}</div>
+                  </div>
+                  <div style={{ marginLeft: '16px', background: 'white', border: '1px solid #dadce0', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#5f6368', flexShrink: 0 }}>
+                    {b.frecuencia} veces
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* TIEMPOS DE MESA (TABLE TURNOVER) */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>⏳ Rapidez por Mesa</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Minutos desde la creación hasta el Check-out</p>
+            </div>
+          </div>
+          {validTurnovers.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>No hay registros de tiempo en mesa.</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto' }}>
+              {validTurnovers.map((t: any, i: number) => {
+                const maxMins = Math.max(...validTurnovers.map((x: any) => x.mins_promedio));
+                const pct = Math.max(8, Math.round((t.mins_promedio / (maxMins || 1)) * 100));
+                const isSlow = t.mins_promedio > turnoverPromedio * 1.35;
+                const isFast = t.mins_promedio < turnoverPromedio * 0.65;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '70px', fontSize: '0.85rem', fontWeight: 700, color: '#5f6368' }}>Mesa {t.mesa}</div>
+                    <div style={{ flex: 1, background: '#f1f3f4', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                      <div style={{ 
+                        height: '100%', width: `${pct}%`, 
+                        background: isSlow ? COLORS.danger : (isFast ? COLORS.success : COLORS.primary),
+                        borderRadius: '4px'
+                      }}></div>
+                    </div>
+                    <div style={{ width: '60px', textAlign: 'right', fontSize: '0.9rem', fontWeight: 800, color: isSlow ? COLORS.danger : '#202124' }}>
+                      {t.mins_promedio}m
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* ===================== BOTONES EXPORT ===================== */}

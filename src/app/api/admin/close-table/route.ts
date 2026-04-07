@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { query, getClient } from '@/lib/db';
 import { refreshAppSheetCache } from '@/lib/appsheet';
+import { cache, CACHE_KEYS } from '@/lib/cache';
 
 export async function POST(request: Request) {
     try {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
                 const { Mesa, Nombre_Cliente, Tipo } = itemRes.rows[0];
 
                 // 2. Verificar si seleccionaron el 100% de los items
-                let totalItemsCondition = close_all_mesa 
+                const totalItemsCondition = close_all_mesa 
                     ? `WHERE "Orden_Nu" IN (SELECT "Orden_Nu" FROM "CLIENTES" WHERE "Mesa" = $1 AND "Estado"='Abierta')`
                     : `WHERE "Orden_Nu" = $1`;
                 
@@ -85,6 +86,8 @@ export async function POST(request: Request) {
                     );
 
                     await client.query('COMMIT');
+                    cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+                    cache.invalidate(CACHE_KEYS.TABLES_OPEN);
                     refreshAppSheetCache().catch(console.error);
                     return NextResponse.json({ success: true, split: true, new_orden_nu: newOrdenNu });
                 }
@@ -108,6 +111,8 @@ export async function POST(request: Request) {
                 [close_all_mesa, forma_pago || null, recibido || null]
             );
 
+            cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+            cache.invalidate(CACHE_KEYS.TABLES_OPEN);
             refreshAppSheetCache().catch(console.error);
             return NextResponse.json({ success: true, closed_count: res.rowCount });
         }
@@ -130,6 +135,8 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Orden no encontrada o ya estaba cerrada' }, { status: 404 });
         }
 
+        cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
+        cache.invalidate(CACHE_KEYS.TABLES_OPEN);
         refreshAppSheetCache().catch(console.error);
         return NextResponse.json({ success: true });
     } catch (error) {
