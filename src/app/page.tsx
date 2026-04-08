@@ -281,7 +281,8 @@ export default function POSPage() {
   // Internal/illogical keywords to filter out of the self-order menu
   const EXCLUDED_KEYWORDS = useMemo(() => [
     "adicional", "incluida", "incluido", "huésped", "huesped", "empaque",
-    "llevar", "copa agua", "guillermo", "gian"
+    "llevar", "copa agua", "guillermo", "gian", "fabi", "almuerzo",
+    "aros de calamar", "arroz con palmito", "prueba", "test"
   ], []);
 
   // Filter products
@@ -295,8 +296,8 @@ export default function POSPage() {
       const nameLower = p.name.toLowerCase();
       const isLogical = isWaiterMode || !EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw));
 
-      // 3. Filter by price: clients (not waiter mode) only see items with price > 200
-      const hasValidPrice = isWaiterMode || (p.price !== null && p.price > 200);
+      // 3. Filter by price: clients (not waiter mode) only see items with price > 0
+      const hasValidPrice = isWaiterMode || (p.price !== null && p.price > 0);
 
       return matchesCategory && matchesSearch && isLogical && hasValidPrice;
 

@@ -403,3 +403,254 @@ export async function getComparativa(
     pct_cambio_ticket: row.pct_cambio_ticket || 0,
   };
 }
+
+// ─────────────────────────────────────────────
+// QUERY 10: ANÁLISIS POR CATEGORÍA
+// ─────────────────────────────────────────────
+
+export interface CategoryRow {
+  categoria: string;
+  ordenes: number;
+  unidades: number;
+  ingresos: number;
+  pct_participacion: number;
+}
+
+export async function getCategoryBreakdown(desde: string, hasta: string): Promise<CategoryRow[]> {
+  const res = await query(`
+    SELECT
+      COALESCE(m."CATEGORIA", 'Sin categoría') AS categoria,
+      COUNT(DISTINCT p."Orden_Nu")::int AS ordenes,
+      SUM(p."CANTIDAD")::int AS unidades,
+      SUM(p."TOTAL")::float AS ingresos,
+      ROUND(
+        SUM(p."TOTAL")::numeric / 
+        NULLIF(SUM(SUM(p."TOTAL")) OVER(), 0) * 100
+      , 1)::float AS pct_participacion
+    FROM "PEDIDOS" p
+    LEFT JOIN "MENU" m ON p."ARTICULO" = m."ARTICULO"
+    JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
+    WHERE c."Estado" = 'Cerrada'
+      AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
+    GROUP BY m."CATEGORIA"
+    ORDER BY ingresos DESC
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}
+
+// ─────────────────────────────────────────────
+// QUERY 11: TOP PRODUCTOS CON TENDENCIA
+// ─────────────────────────────────────────────
+
+export interface ProductTrendRow {
+  producto: string;
+  categoria: string;
+  unidades: number;
+  ingresos: number;
+  ticket_promedio: number;
+  tendencia: string; // 'subiendo', 'estable', 'bajando'
+}
+
+export async function getProductTrends(desde: string, hasta: string): Promise<ProductTrendRow[]> {
+  const res = await query(`
+    WITH productos AS (
+      SELECT
+        p."ARTICULO",
+        COALESCE(m."CATEGORIA", 'Sin categoría') AS categoria,
+        SUM(p."CANTIDAD")::int AS unidades,
+        SUM(p."TOTAL")::float AS ingresos,
+        COUNT(DISTINCT p."Orden_Nu")::int AS ordenes,
+        ROUND(AVG(p."TOTAL")::numeric, 0)::float AS ticket_promedio,
+        EXTRACT(DAY FROM MAX(c."Fecha"))::int AS dia_ultimo,
+        EXTRACT(DAY FROM MIN(c."Fecha"))::int AS dia_primero
+      FROM "PEDIDOS" p
+      LEFT JOIN "MENU" m ON p."ARTICULO" = m."ARTICULO"
+      JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
+      WHERE c."Estado" = 'Cerrada'
+        AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
+      GROUP BY p."ARTICULO", m."CATEGORIA"
+    )
+    SELECT
+      "ARTICULO" AS producto,
+      categoria,
+      unidades,
+      ingresos,
+      ticket_promedio,
+      CASE
+        WHEN (dia_ultimo - dia_primero) > 5 AND unidades > 10 THEN 'subiendo'
+        WHEN (dia_ultimo - dia_primero) < 3 AND unidades > 5 THEN 'bajando'
+        ELSE 'estable'
+      END AS tendencia
+    FROM productos
+    ORDER BY ingresos DESC
+    LIMIT 20
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}
+
+// ─────────────────────────────────────────────
+// QUERY 12: ANÁLISIS DE RETENCIÓN (CLIENTES RECURRENTES)
+// ─────────────────────────────────────────────
+
+export interface RetentionRow {
+  segmento: string;
+  clientes: number;
+  ordenes: number;
+  ingresos: number;
+  pct_clientes: number;
+}
+
+export async function getRetentionAnalysis(desde: string, hasta: string): Promise<RetentionRow[]> {
+  const res = await query(`
+    WITH clientes AS (
+      SELECT
+        "Nombre_Cliente",
+        COUNT(*)::int AS visitas,
+        SUM("Total")::float AS total_gastado
+      FROM "CLIENTES"
+      WHERE "Estado" = 'Cerrada'
+        AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
+        AND "Nombre_Cliente" IS NOT NULL
+        AND "Nombre_Cliente" != ''
+      GROUP BY "Nombre_Cliente"
+    )
+    SELECT
+      CASE
+        WHEN visitas >= 5 THEN 'Frecuentes (5+)'
+        WHEN visitas >= 3 THEN 'Regulares (3-4)'
+        WHEN visitas >= 2 THEN 'Ocasionales (2)'
+        ELSE 'Primera vez'
+      END AS segmento,
+      COUNT(*)::int AS clientes,
+      SUM(visitas)::int AS ordenes,
+      SUM(total_gastado)::float AS ingresos,
+      ROUND(
+        COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER(), 0) * 100
+      , 1)::float AS pct_clientes
+    FROM clientes
+    GROUP BY segmento
+    ORDER BY clientes DESC
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}
+
+// ─────────────────────────────────────────────
+// QUERY 13: DISTRIBUCIÓN DE TICKET (BINNING)
+// ─────────────────────────────────────────────
+
+export interface TicketDistRow {
+  rango: string;
+  ordenes: number;
+  ingresos: number;
+  pct_ordenes: number;
+}
+
+export async function getTicketDistribution(desde: string, hasta: string): Promise<TicketDistRow[]> {
+  const res = await query(`
+    SELECT
+      CASE
+        WHEN "Total" >= 50000 THEN '₡50,000+'
+        WHEN "Total" >= 30000 THEN '₡30,000-50,000'
+        WHEN "Total" >= 20000 THEN '₡20,000-30,000'
+        WHEN "Total" >= 10000 THEN '₡10,000-20,000'
+        WHEN "Total" >= 5000 THEN '₡5,000-10,000'
+        ELSE 'Menos de ₡5,000'
+      END AS rango,
+      COUNT(*)::int AS ordenes,
+      SUM("Total")::float AS ingresos,
+      ROUND(COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER(), 0) * 100, 1)::float AS pct_ordenes
+    FROM "CLIENTES"
+    WHERE "Estado" = 'Cerrada'
+      AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
+    GROUP BY rango
+    ORDER BY MIN("Total") DESC
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}
+
+// ─────────────────────────────────────────────
+// QUERY 14: PRODUCTOS MAS VENDIDOS POR TURNO
+// ─────────────────────────────────────────────
+
+export interface ShiftProductRow {
+  turno: string;
+  producto: string;
+  unidades: number;
+}
+
+export async function getProductsByShift(desde: string, hasta: string): Promise<ShiftProductRow[]> {
+  const res = await query(`
+    SELECT
+      CASE
+        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 6 AND 11 THEN 'Desayuno'
+        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 12 AND 15 THEN 'Almuerzo'
+        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 16 AND 20 THEN 'Cena'
+        ELSE 'Noche'
+      END AS turno,
+      p."ARTICULO" AS producto,
+      SUM(p."CANTIDAD")::int AS unidades
+    FROM "PEDIDOS" p
+    JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
+    WHERE c."Estado" = 'Cerrada'
+      AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
+    GROUP BY turno, p."ARTICULO"
+    HAVING SUM(p."CANTIDAD") >= 3
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}
+
+// ─────────────────────────────────────────────
+// QUERY 15: MÉTRICAS DE VELOCIDAD (TIEMPO PROMEDIO)
+// ─────────────────────────────────────────────
+
+export interface SpeedMetricsRow {
+  metric: string;
+  valor: number;
+  descripcion: string;
+}
+
+export async function getSpeedMetrics(desde: string, hasta: string): Promise<SpeedMetricsRow[]> {
+  const res = await query(`
+    WITH metricas AS (
+      SELECT
+        COUNT(DISTINCT "Orden_Nu")::int AS ordenes,
+        SUM("Total")::float AS ingresos,
+        COUNT(*)::int AS dias_operativos,
+        MIN("Fecha")::date AS primer_dia,
+        MAX("Fecha")::date AS ultimo_dia
+      FROM "CLIENTES"
+      WHERE "Estado" = 'Cerrada'
+        AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
+    )
+    SELECT
+      'órdenes_día' AS metric,
+      ROUND(ordenes::numeric / NULLIF(dias_operativos, 0), 1)::float AS valor,
+      'Órdenes promedio por día' AS descripcion
+    FROM metricas
+    UNION ALL
+    SELECT
+      'ingresos_día',
+      ROUND(ingresos::numeric / NULLIF(dias_operativos, 0), 0)::float,
+      'Ingresos promedio por día'
+    FROM metricas
+    UNION ALL
+    SELECT
+      'ticket_promedio',
+      ROUND(ingresos::numeric / NULLIF(ordenes, 0), 0)::float,
+      'Ticket promedio por orden'
+    FROM metricas
+    UNION ALL
+    SELECT
+      'dias_operativos',
+      dias_operativos::float,
+      'Días operativos en el período'
+    FROM metricas
+  `, [desde, hasta]);
+
+  return res.rows || [];
+}

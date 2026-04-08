@@ -171,7 +171,15 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   // -- NEW: Inteligencia de Negocio & Variables --
   const validTurnovers = trendsData.tableTurnover?.filter((t: any) => t.mesa && t.mins_promedio > 0) || [];
   const turnoverPromedio = validTurnovers.length > 0 ? (validTurnovers.reduce((acc: number, t: any) => acc + t.mins_promedio, 0) / validTurnovers.length) : 0;
-  const topCrossSell = trendsData.basket?.[0]; // {producto_a, producto_b, frecuencia}
+  const topCrossSell = trendsData.basket?.[0];
+
+  // Nuevas métricas de ciencia de datos
+  const categoryData = trendsData.categories || [];
+  const productTrends = trendsData.products || [];
+  const retentionData = trendsData.retention || [];
+  const ticketDist = trendsData.tickets || [];
+  const shiftProducts = trendsData.shifts || [];
+  const speedMetrics = trendsData.speed || [];
 
   // ===================== GRÁFICOS =====================
   
@@ -712,6 +720,138 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             </div>
           )}
         </div>
+
+        {/* ===================== ANÁLISIS POR CATEGORÍA ===================== */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📊 Desglose por Categoría</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Participación de ingresos por categoría</p>
+          </div>
+          {categoryData.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {categoryData.slice(0, 8).map((cat: any, i: number) => {
+                const maxIng = Math.max(...categoryData.map((x: any) => x.ingresos));
+                const pct = Math.round((cat.ingresos / maxIng) * 100);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '120px', fontSize: '0.85rem', fontWeight: 600, color: '#5f6368' }}>{cat.categoria}</div>
+                    <div style={{ flex: 1, background: '#f1f3f4', height: '12px', borderRadius: '6px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${pct}%`, background: COLORS.palette[i % COLORS.palette.length], borderRadius: '6px' }}></div>
+                    </div>
+                    <div style={{ width: '80px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 700 }}>{cat.pct_participacion?.toFixed(1)}%</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ===================== DISTRIBUCIÓN DE TICKET ===================== */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>💵 Distribución de Ticket</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Rangos de consumo por orden</p>
+          </div>
+          {ticketDist.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+          ) : (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+              {ticketDist.map((t: any, i: number) => (
+                <div key={i} style={{ textAlign: 'center', padding: '16px', background: '#f8f9fa', borderRadius: '12px' }}>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 800, color: COLORS.palette[i % COLORS.palette.length] }}>{t.rango}</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#202124', marginTop: '4px' }}>{t.ordenes}</div>
+                  <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>órdenes ({t.pct_ordenes}%)</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ===================== RETENCIÓN DE CLIENTES ===================== */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>🔄 Fidelización de Clientes</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Segmentación por frecuencia de visita</p>
+          </div>
+          {retentionData.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+          ) : (
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              {retentionData.map((r: any, i: number) => {
+                const colors = [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray];
+                return (
+                  <div key={i} style={{ 
+                    padding: '16px 24px', 
+                    background: `${colors[i % colors.length]}15`,
+                    border: `2px solid ${colors[i % colors.length]}`,
+                    borderRadius: '12px',
+                    textAlign: 'center',
+                    minWidth: '140px'
+                  }}>
+                    <div style={{ fontSize: '0.7rem', fontWeight: 700, color: colors[i % colors.length], textTransform: 'uppercase' }}>{r.segmento}</div>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#202124' }}>{r.clientes}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>{r.ordenes} órdenes · {formatColones(r.ingresos)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ===================== TENDENCIAS DE PRODUCTOS ===================== */}
+        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📈 Productos en Tendencia</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Análisis de comportamiento de ventas</p>
+          </div>
+          {productTrends.length === 0 ? (
+            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {productTrends.slice(0, 10).map((p: any, i: number) => {
+                const tendenciaColor = p.tendencia === 'subiendo' ? COLORS.success : (p.tendencia === 'bajando' ? COLORS.danger : COLORS.gray);
+                const tendenciaIcon = p.tendencia === 'subiendo' ? '📈' : (p.tendencia === 'bajando' ? '📉' : '➡️');
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: '#f8f9fa', borderRadius: '8px' }}>
+                    <span style={{ fontSize: '1.2rem' }}>{tendenciaIcon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{p.producto?.substring(0,30)}</div>
+                      <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>{p.categoria} · {p.unidades} unidades</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#137333' }}>{formatColones(p.ingresos)}</div>
+                      <div style={{ fontSize: '0.7rem', color: tendenciaColor, fontWeight: 600 }}>{p.tendencia.toUpperCase()}</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* ===================== MÉTRICAS DE VELOCIDAD ===================== */}
+        {speedMetrics.length > 0 && (
+          <div style={{ background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)', borderRadius: '16px', padding: '24px', border: '1px solid #a5d6a7', boxShadow: '0 4px 12px rgba(52,168,83,0.15)' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#1b5e20', fontWeight: 700 }}>⚡ Métricas de Rendimiento</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#2e7d32' }}>KPIs operativos del período</p>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+              {speedMetrics.map((m: any, i: number) => (
+                <div key={i} style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 600, textTransform: 'uppercase' }}>{m.descripcion}</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#137333', marginTop: '4px' }}>
+                    {m.metric === 'órdenes_día' || m.metric === 'ingresos_día' || m.metric === 'ticket_promedio' 
+                      ? (m.metric === 'ticket_promedio' ? formatColones(m.valor) : formatColones(m.valor))
+                      : Math.round(m.valor)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
       </div>
 

@@ -6,11 +6,11 @@ export const dynamic = 'force-dynamic';
 export async function GET(request: Request) {
     try {
         const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
+        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
-        // Get closed orders for today (AppSheet Slice: Estado="Cerrada" AND Fecha=TODAY())
+        // Get closed orders for today in Costa Rica time
         const res = await query(`
             SELECT 
                 "Orden_Nu", 
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
                 "Recibido"
             FROM "CLIENTES" 
             WHERE "Estado" = 'Cerrada' 
-            AND DATE("Fecha") = CURRENT_DATE
+            AND DATE("Fecha" AT TIME ZONE 'America/Costa_Rica') = DATE(CURRENT_TIMESTAMP AT TIME ZONE 'America/Costa_Rica')
             ORDER BY "Fecha" DESC
         `);
 

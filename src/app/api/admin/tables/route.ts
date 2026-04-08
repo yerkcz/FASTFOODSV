@@ -7,7 +7,7 @@ export async function GET(request: Request) {
     try {
         // Simple authentication
         const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
+        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
             return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
         }
 
