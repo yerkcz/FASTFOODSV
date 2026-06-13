@@ -9,57 +9,11 @@ function formatColones(amount: number): string {
   }).format(amount).replace('CRC', '₡');
 }
 
-interface ReportKPIs {
-  ingresos_totales: number;
-  total_ordenes: number;
-  ticket_promedio: number;
-  ordenes_por_dia: number;
-  coef_variacion: number;
-}
-
-interface ReportComparativa {
-  pct_cambio_ingresos: number;
-  pct_cambio_ordenes: number;
-  pct_cambio_ticket: number;
-}
-
-interface ReportDashboardData {
-  periodo: { label: string };
-  kpis: ReportKPIs;
-  comparativa: ReportComparativa;
-  top10_productos?: Array<{
-    producto: string;
-    categoria: string;
-    unidades_vendidas: number;
-    ingresos: number;
-    pct_individual: string;
-  }>;
-}
-
-interface ReportProductsData {
-  productos: Array<{
-    producto: string;
-    categoria: string;
-    unidades_vendidas: number;
-    ingresos: number;
-    pct_individual: string;
-  }>;
-}
-
-interface ReportTrendsData {
-  labels: string[];
-  values: number[];
-}
-
-interface ChartRefs {
-  [key: string]: string;
-}
-
 export async function generateReportPDF(
-  dashboardData: ReportDashboardData,
-  productsData: ReportProductsData,
-  trendsData: ReportTrendsData,
-  chartRefs: ChartRefs
+  dashboardData: any,
+  productsData: any,
+  trendsData: any,
+  chartRefs: { [key: string]: string } // base64 images of the charts
 ) {
   const doc = new jsPDF({ format: 'letter', unit: 'mm' });
   const pageWidth = doc.internal.pageSize.width;
@@ -207,15 +161,7 @@ export async function generateReportPDF(
   doc.setFont('helvetica', 'normal');
   const topList = dashboardData.top10_productos || productsData.productos.slice(0, 10);
   
-  type TopProduct = {
-    producto: string;
-    categoria: string;
-    unidades_vendidas: number;
-    ingresos: number;
-    pct_individual: string;
-  };
-  
-  topList.slice(0, 8).forEach((p: TopProduct, i: number) => {
+  topList.slice(0, 8).forEach((p: any, i: number) => {
     if (i % 2 === 0) {
       doc.setFillColor(246, 248, 250);
       doc.rect(marginX, currentY, pageWidth - 2 * marginX, 8, 'F');
@@ -232,9 +178,9 @@ export async function generateReportPDF(
   // Footer Pag 2
   doc.setFontSize(8);
   doc.setTextColor(139, 148, 158);
-  doc.text(`Reporte elaborado por Hideaway POS Analytics AI`, pageWidth/2, 266, { align: 'center' });
+  doc.text(`Reporte elaborado por Fast Food San Vicente POS`, pageWidth/2, 266, { align: 'center' });
   doc.text(`Página 2 de 2`, pageWidth/2, 270, { align: 'center' });
 
   // Save via browser
-  doc.save(`Hideaway_Reporte_Ejecutivo_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`FastFoodSV_Reporte_Ejecutivo_${new Date().toISOString().slice(0, 10)}.pdf`);
 }

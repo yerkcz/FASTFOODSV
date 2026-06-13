@@ -116,7 +116,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `Hideaway_Reporte_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `FastFoodSV_Reporte_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };

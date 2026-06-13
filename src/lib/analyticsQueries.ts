@@ -1,8 +1,42 @@
-import { query } from '@/lib/db';
+import { getServerSupabase } from '@/lib/supabase/server-api';
 
-// ─────────────────────────────────────────────
-// TIPOS
-// ─────────────────────────────────────────────
+const TIMEZONE = 'America/Costa_Rica';
+
+function getCRDateRange(periodo: string, desde?: string, hasta?: string) {
+  const now = new Date();
+  const crNow = new Date(now.toLocaleString('en-US', { timeZone: TIMEZONE }));
+  const end = new Date(crNow);
+  end.setHours(23, 59, 59, 999);
+  let start: Date;
+  switch (periodo) {
+    case 'hoy':
+      start = new Date(crNow);
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'semana':
+      start = new Date(crNow);
+      start.setDate(start.getDate() - start.getDay());
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'mes':
+      start = new Date(crNow.getFullYear(), crNow.getMonth(), 1);
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'rango':
+      start = desde ? new Date(desde) : new Date(crNow);
+      start.setHours(0, 0, 0, 0);
+      if (hasta) {
+        const h = new Date(hasta);
+        h.setHours(23, 59, 59, 999);
+        return { start: start.toISOString(), end: h.toISOString() };
+      }
+      break;
+    default:
+      start = new Date(crNow);
+      start.setHours(0, 0, 0, 0);
+  }
+  return { start: start.toISOString(), end: end.toISOString() };
+}
 
 export interface KPIResult {
   total_ordenes: number;
@@ -76,581 +110,248 @@ export interface ComparativaResult {
   pct_cambio_ticket: number;
 }
 
-// ─────────────────────────────────────────────
-// HELPER: Rango de fechas por periodo
-// ─────────────────────────────────────────────
-
-export function buildDateRange(periodo: string, desde?: string, hasta?: string) {
-  const now = new Date();
-  // Convertir a Costa Rica timezone
-  const crNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Costa_Rica' }));
-
-  let start: Date;
-  let end: Date = new Date(crNow);
-  end.setHours(23, 59, 59, 999);
-
-  switch (periodo) {
-    case 'hoy':
-      start = new Date(crNow);
-      start.setHours(0, 0, 0, 0);
-      break;
-    case 'semana':
-      start = new Date(crNow);
-      start.setDate(start.getDate() - start.getDay()); // domingo
-      start.setHours(0, 0, 0, 0);
-      break;
-    case 'mes':
-      start = new Date(crNow.getFullYear(), crNow.getMonth(), 1);
-      break;
-    case 'año':
-      start = new Date(crNow.getFullYear(), 0, 1);
-      break;
-    case 'custom':
-      if (!desde || !hasta) throw new Error('Custom requiere desde y hasta');
-      start = new Date(desde);
-      end = new Date(hasta);
-      end.setHours(23, 59, 59, 999);
-      break;
-    default: // 'todo'
-      start = new Date('2024-01-01');
-      break;
-  }
-
-  return { desde: start.toISOString(), hasta: end.toISOString() };
-}
-
-/**
- * Calcula el periodo anterior equivalente para comparativas.
- * Ejemplo: si el periodo actual es "7 días", el anterior es "los 7 días antes".
- */
-export function buildPreviousPeriod(desde: string, hasta: string) {
-  const d = new Date(desde);
-  const h = new Date(hasta);
-  const diffMs = h.getTime() - d.getTime();
-
-  const prevHasta = new Date(d.getTime() - 1); // 1ms antes del inicio actual
-  const prevDesde = new Date(prevHasta.getTime() - diffMs);
-
-  return { desde: prevDesde.toISOString(), hasta: prevHasta.toISOString() };
-}
-
-// ─────────────────────────────────────────────
-// QUERY 1: KPIs PRINCIPALES
-// ─────────────────────────────────────────────
-
 export async function getKPIs(desde: string, hasta: string): Promise<KPIResult> {
-  const res = await query(`
-    SELECT
-      COUNT(DISTINCT c."Orden_Nu")::int AS total_ordenes,
-      COALESCE(SUM(c."Total"), 0)::float AS ingresos_totales,
-      COALESCE(ROUND(AVG(c."Total")::numeric, 0), 0)::float AS ticket_promedio,
-      COALESCE(ROUND(STDDEV(c."Total")::numeric, 0), 0)::float AS desv_estandar,
-      COUNT(DISTINCT DATE(c."Fecha" AT TIME ZONE 'America/Costa_Rica'))::int AS dias_operativos
-    FROM "CLIENTES" c
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp
-      AND c."Fecha" <= $2::timestamp
-  `, [desde, hasta]);
-
-  const row = res.rows?.[0] || {};
-  const total_ordenes = row.total_ordenes || 0;
-  const ingresos_totales = row.ingresos_totales || 0;
-  const ticket_promedio = row.ticket_promedio || 0;
-  const desv_estandar = row.desv_estandar || 0;
-  const dias_operativos = row.dias_operativos || 1; // evitar div/0
-
+  const supabase = getServerSupabase();
+  const { data: ordenes, error } = await (supabase.from('ordenes') as any)
+    .select('id, total, closed_at')
+    .eq('estado', 'cerrada')
+    .gte('closed_at', desde)
+    .lte('closed_at', hasta);
+  if (error) throw error;
+  const arr = (ordenes || []) as any[];
+  const total = arr.length;
+  const ingresos = arr.reduce((acc, o) => acc + Number(o.total || 0), 0);
+  const promedio = total > 0 ? ingresos / total : 0;
+  const varianza = total > 0
+    ? arr.reduce((acc, o) => acc + Math.pow(Number(o.total || 0) - promedio, 2), 0) / total
+    : 0;
+  const std = Math.sqrt(varianza);
+  const cv = promedio > 0 ? std / promedio : 0;
   return {
-    total_ordenes,
-    ingresos_totales,
-    ticket_promedio,
-    desv_estandar,
-    dias_operativos,
-    ordenes_por_dia: Math.round(total_ordenes / dias_operativos * 10) / 10,
-    ingresos_por_dia: Math.round(ingresos_totales / dias_operativos),
-    coef_variacion: ticket_promedio > 0
-      ? Math.round((desv_estandar / ticket_promedio) * 1000) / 10
-      : 0,
+    total_ordenes: total,
+    ingresos_totales: ingresos,
+    ticket_promedio: promedio,
+    desv_estandar: std,
+    dias_operativos: 1,
+    ordenes_por_dia: total,
+    ingresos_por_dia: ingresos,
+    coef_variacion: cv,
   };
 }
 
-// ─────────────────────────────────────────────
-// QUERY 2: ANÁLISIS POR PRODUCTO
-// ─────────────────────────────────────────────
-
-export async function getProductAnalysis(desde: string, hasta: string): Promise<ProductRow[]> {
-  const res = await query(`
-    SELECT
-      p."ARTICULO" AS producto,
-      COALESCE(m."CATEGORIA", 'Sin Categoría') AS categoria,
-      COALESCE(m."PRECIO", 0)::float AS precio_unitario,
-      COALESCE(SUM(p."CANTIDAD"), 0)::int AS unidades_vendidas,
-      COALESCE(SUM(p."TOTAL"), 0)::float AS ingresos,
-      COUNT(DISTINCT p."Orden_Nu")::int AS ordenes_con_producto,
-      ROUND(
-        COALESCE(SUM(p."CANTIDAD"), 0)::numeric /
-        NULLIF(COUNT(DISTINCT DATE(c."Fecha" AT TIME ZONE 'America/Costa_Rica')), 0)::numeric
-      , 1)::float AS rotacion_diaria
-    FROM "PEDIDOS" p
-    JOIN "CLIENTES" c ON c."Orden_Nu" = p."Orden_Nu"
-    LEFT JOIN "MENU" m ON m."ARTICULO" = p."ARTICULO"
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp
-      AND c."Fecha" <= $2::timestamp
-    GROUP BY p."ARTICULO", m."CATEGORIA", m."PRECIO"
-    ORDER BY ingresos DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 3: SERIES TEMPORALES
-// ─────────────────────────────────────────────
-
-export async function getTimeSeries(
-  desde: string,
-  hasta: string,
-  granularity: 'day' | 'week' | 'month' | 'year'
-): Promise<TimeSeriesRow[]> {
-  const validGranularities = ['day', 'week', 'month', 'year'];
-  if (!validGranularities.includes(granularity)) {
-    throw new Error(`Granularity inválida: ${granularity}`);
+export async function getTopProductos(desde: string, hasta: string, limit = 20): Promise<ProductRow[]> {
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('orden_items') as any)
+    .select('cantidad, subtotal, nombre_producto, orden_id, ordenes!inner(closed_at, estado)')
+    .eq('ordenes.estado', 'cerrada')
+    .gte('ordenes.closed_at', desde)
+    .lte('ordenes.closed_at', hasta);
+  if (error) throw error;
+  const map = new Map<string, { unidades: number; ingresos: number; ordenes: Set<string> }>();
+  for (const it of (data || []) as any[]) {
+    const nombre = it.nombre_producto;
+    const ex = map.get(nombre) || { unidades: 0, ingresos: 0, ordenes: new Set() };
+    ex.unidades += Number(it.cantidad || 0);
+    ex.ingresos += Number(it.subtotal || 0);
+    ex.ordenes.add(it.orden_id);
+    map.set(nombre, ex);
   }
-
-  const res = await query(`
-    SELECT
-      DATE_TRUNC('${granularity}', c."Fecha" AT TIME ZONE 'America/Costa_Rica')::text AS periodo,
-      COUNT(DISTINCT c."Orden_Nu")::int AS ordenes,
-      COALESCE(SUM(c."Total"), 0)::float AS ingresos,
-      COALESCE(ROUND(AVG(c."Total")::numeric, 0), 0)::float AS ticket_promedio
-    FROM "CLIENTES" c
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp
-      AND c."Fecha" <= $2::timestamp
-    GROUP BY periodo
-    ORDER BY periodo ASC
-  `, [desde, hasta]);
-
-  return res.rows || [];
+  return Array.from(map.entries())
+    .map(([producto, v]) => ({
+      producto,
+      categoria: '',
+      precio_unitario: v.unidades > 0 ? v.ingresos / v.unidades : 0,
+      unidades_vendidas: v.unidades,
+      ingresos: v.ingresos,
+      ordenes_con_producto: v.ordenes.size,
+      rotacion_diaria: v.unidades,
+    }))
+    .sort((a, b) => b.ingresos - a.ingresos)
+    .slice(0, limit);
 }
 
-// ─────────────────────────────────────────────
-// QUERY 4: GOLDEN HOURS (Horas Pico)
-// ─────────────────────────────────────────────
+export async function getTimeSeries(desde: string, hasta: string, _granularity = 'day'): Promise<TimeSeriesRow[]> {
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('ordenes') as any)
+    .select('total, closed_at')
+    .eq('estado', 'cerrada')
+    .gte('closed_at', desde)
+    .lte('closed_at', hasta)
+    .order('closed_at');
+  if (error) throw error;
+  const map = new Map<string, { ordenes: number; ingresos: number }>();
+  for (const o of (data || []) as any[]) {
+    const fecha = new Date(o.closed_at).toISOString().split('T')[0];
+    const ex = map.get(fecha) || { ordenes: 0, ingresos: 0 };
+    ex.ordenes += 1;
+    ex.ingresos += Number(o.total || 0);
+    map.set(fecha, ex);
+  }
+  return Array.from(map.entries()).map(([periodo, v]) => ({
+    periodo,
+    ordenes: v.ordenes,
+    ingresos: v.ingresos,
+    ticket_promedio: v.ordenes > 0 ? v.ingresos / v.ordenes : 0,
+  }));
+}
 
 export async function getGoldenHours(desde: string, hasta: string): Promise<GoldenHourRow[]> {
-  const res = await query(`
-    SELECT
-      EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica')::int AS hora,
-      COUNT(DISTINCT c."Orden_Nu")::int AS ordenes,
-      COALESCE(SUM(c."Total"), 0)::float AS ingresos
-    FROM "CLIENTES" c
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp
-      AND c."Fecha" <= $2::timestamp
-    GROUP BY hora
-    ORDER BY hora ASC
-  `, [desde, hasta]);
-
-  return res.rows || [];
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('ordenes') as any)
+    .select('total, closed_at')
+    .eq('estado', 'cerrada')
+    .gte('closed_at', desde)
+    .lte('closed_at', hasta);
+  if (error) throw error;
+  const map = new Map<number, { ordenes: number; ingresos: number }>();
+  for (let h = 0; h < 24; h++) map.set(h, { ordenes: 0, ingresos: 0 });
+  for (const o of (data || []) as any[]) {
+    const hora = parseInt(
+      new Date(o.closed_at).toLocaleString('en-US', { timeZone: TIMEZONE, hour: 'numeric', hour12: false }),
+      10
+    );
+    const ex = map.get(hora) || { ordenes: 0, ingresos: 0 };
+    ex.ordenes += 1;
+    ex.ingresos += Number(o.total || 0);
+    map.set(hora, ex);
+  }
+  return Array.from(map.entries()).map(([hora, v]) => ({ hora, ...v })).sort((a, b) => b.ingresos - a.ingresos);
 }
 
-// ─────────────────────────────────────────────
-// QUERY 5: DESGLOSE POR DÍA DE SEMANA
-// ─────────────────────────────────────────────
-
-export async function getWeekdayBreakdown(desde: string, hasta: string): Promise<WeekdayRow[]> {
-  const res = await query(`
-    SELECT
-      TRIM(TO_CHAR(c."Fecha" AT TIME ZONE 'America/Costa_Rica', 'Day')) AS dia,
-      EXTRACT(DOW FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica')::int AS dia_num,
-      COUNT(DISTINCT c."Orden_Nu")::int AS ordenes,
-      COALESCE(SUM(c."Total"), 0)::float AS ingresos
-    FROM "CLIENTES" c
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp
-      AND c."Fecha" <= $2::timestamp
-    GROUP BY dia, dia_num
-    ORDER BY dia_num ASC
-  `, [desde, hasta]);
-
-  return res.rows || [];
+export async function getWeekdayStats(desde: string, hasta: string): Promise<WeekdayRow[]> {
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('ordenes') as any)
+    .select('total, closed_at')
+    .eq('estado', 'cerrada')
+    .gte('closed_at', desde)
+    .lte('closed_at', hasta);
+  if (error) throw error;
+  const dias = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  const map = new Map<number, { ordenes: number; ingresos: number }>();
+  for (let d = 0; d < 7; d++) map.set(d, { ordenes: 0, ingresos: 0 });
+  for (const o of (data || []) as any[]) {
+    const d = new Date(o.closed_at).toLocaleString('en-US', { timeZone: TIMEZONE, weekday: 'short' });
+    const dnum = dias.findIndex((x) => x.startsWith(d));
+    if (dnum >= 0) {
+      const ex = map.get(dnum)!;
+      ex.ordenes += 1;
+      ex.ingresos += Number(o.total || 0);
+    }
+  }
+  return Array.from(map.entries()).map(([dnum, v]) => ({ dia: dias[dnum], dia_num: dnum, ...v }));
 }
 
-// ─────────────────────────────────────────────
-// QUERY 6: DISTRIBUCIÓN POR FORMA DE PAGO
-// ─────────────────────────────────────────────
-
-export async function getPaymentMethods(desde: string, hasta: string): Promise<PaymentMethodRow[]> {
-  const res = await query(`
-    SELECT
-      COALESCE("Forma_Pago", 'No registrado') AS metodo,
-      COUNT(*)::int AS cantidad,
-      COALESCE(SUM("Total"), 0)::float AS ingresos,
-      COALESCE(ROUND(AVG("Total")::numeric, 0), 0)::float AS ticket_promedio
-    FROM "CLIENTES"
-    WHERE "Estado" = 'Cerrada'
-      AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-    GROUP BY "Forma_Pago"
-    ORDER BY ingresos DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
+export async function getMetodosPago(desde: string, hasta: string): Promise<PaymentMethodRow[]> {
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('pagos') as any)
+    .select('forma_pago, monto, created_at')
+    .gte('created_at', desde)
+    .lte('created_at', hasta);
+  if (error) throw error;
+  const map = new Map<string, { cantidad: number; ingresos: number }>();
+  for (const p of (data || []) as any[]) {
+    const ex = map.get(p.forma_pago) || { cantidad: 0, ingresos: 0 };
+    ex.cantidad += 1;
+    ex.ingresos += Number(p.monto || 0);
+    map.set(p.forma_pago, ex);
+  }
+  return Array.from(map.entries()).map(([metodo, v]) => ({
+    metodo,
+    cantidad: v.cantidad,
+    ingresos: v.ingresos,
+    ticket_promedio: v.cantidad > 0 ? v.ingresos / v.cantidad : 0,
+  }));
 }
-
-// ─────────────────────────────────────────────
-// QUERY 7: TABLE TURNOVER (Velocidad de Mesa)
-// ─────────────────────────────────────────────
 
 export async function getTableTurnover(desde: string, hasta: string): Promise<TableTurnoverRow[]> {
-  const res = await query(`
-    SELECT
-      "Mesa" AS mesa,
-      ROUND(AVG(
-        EXTRACT(EPOCH FROM (
-          COALESCE("Ultima_Actividad", "Fecha") - "Fecha"
-        )) / 60
-      )::numeric, 0)::int AS mins_promedio,
-      COUNT(*)::int AS total_ordenes
-    FROM "CLIENTES"
-    WHERE "Estado" = 'Cerrada'
-      AND "Mesa" IS NOT NULL
-      AND "Mesa" != ''
-      AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-    GROUP BY "Mesa"
-    ORDER BY mins_promedio DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('ordenes') as any)
+    .select('mesa_numero, opened_at, closed_at')
+    .eq('estado', 'cerrada')
+    .gte('closed_at', desde)
+    .lte('closed_at', hasta);
+  if (error) throw error;
+  const map = new Map<number, { mins: number[]; total: number }>();
+  for (const o of (data || []) as any[]) {
+    if (!o.closed_at || !o.opened_at) continue;
+    const mins = (new Date(o.closed_at).getTime() - new Date(o.opened_at).getTime()) / 60000;
+    const ex = map.get(Number(o.mesa_numero)) || { mins: [], total: 0 };
+    ex.mins.push(mins);
+    ex.total += 1;
+    map.set(Number(o.mesa_numero), ex);
+  }
+  return Array.from(map.entries()).map(([mesa, v]) => ({
+    mesa: String(mesa),
+    mins_promedio: v.mins.length > 0 ? v.mins.reduce((a, b) => a + b, 0) / v.mins.length : 0,
+    total_ordenes: v.total,
+  }));
 }
 
-// ─────────────────────────────────────────────
-// QUERY 8: MARKET BASKET ANALYSIS (Simplificado)
-// ─────────────────────────────────────────────
-
-export async function getMarketBasket(desde: string, hasta: string): Promise<MarketBasketRow[]> {
-  const res = await query(`
-    SELECT
-      p1."ARTICULO" AS producto_a,
-      p2."ARTICULO" AS producto_b,
-      COUNT(*)::int AS frecuencia
-    FROM "PEDIDOS" p1
-    JOIN "PEDIDOS" p2
-      ON p1."Orden_Nu" = p2."Orden_Nu"
-      AND p1."ARTICULO" < p2."ARTICULO"
-    JOIN "CLIENTES" c ON c."Orden_Nu" = p1."Orden_Nu"
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
-    GROUP BY p1."ARTICULO", p2."ARTICULO"
-    HAVING COUNT(*) >= 5
-    ORDER BY frecuencia DESC
-    LIMIT 20
-  `, [desde, hasta]);
-
-  return res.rows || [];
+export async function getMarketBasket(desde: string, hasta: string, limit = 20): Promise<MarketBasketRow[]> {
+  const supabase = getServerSupabase();
+  const { data, error } = await (supabase.from('orden_items') as any)
+    .select('nombre_producto, orden_id, ordenes!inner(closed_at, estado)')
+    .eq('ordenes.estado', 'cerrada')
+    .gte('ordenes.closed_at', desde)
+    .lte('ordenes.closed_at', hasta);
+  if (error) throw error;
+  const ordenesMap = new Map<string, Set<string>>();
+  for (const it of (data || []) as any[]) {
+    const set = ordenesMap.get(it.orden_id) || new Set<string>();
+    set.add(it.nombre_producto);
+    ordenesMap.set(it.orden_id, set);
+  }
+  const pairs = new Map<string, number>();
+  for (const prods of ordenesMap.values()) {
+    const arr = Array.from(prods);
+    for (let i = 0; i < arr.length; i++) {
+      for (let j = i + 1; j < arr.length; j++) {
+        const a = arr[i] < arr[j] ? arr[i] : arr[j];
+        const b = arr[i] < arr[j] ? arr[j] : arr[i];
+        const key = `${a}||${b}`;
+        pairs.set(key, (pairs.get(key) || 0) + 1);
+      }
+    }
+  }
+  return Array.from(pairs.entries())
+    .filter(([_, f]) => f >= 2)
+    .map(([key, frecuencia]) => {
+      const [a, b] = key.split('||');
+      return { producto_a: a, producto_b: b, frecuencia };
+    })
+    .sort((a, b) => b.frecuencia - a.frecuencia)
+    .slice(0, limit);
 }
 
-// ─────────────────────────────────────────────
-// QUERY 9: COMPARATIVA CON PERIODO ANTERIOR
-// ─────────────────────────────────────────────
-
-export async function getComparativa(
-  desdeActual: string, hastaActual: string,
-  desdeAnterior: string, hastaAnterior: string
-): Promise<ComparativaResult> {
-  const res = await query(`
-    WITH actual AS (
-      SELECT
-        COUNT(DISTINCT "Orden_Nu")::int AS ordenes,
-        COALESCE(SUM("Total"), 0)::float AS ingresos,
-        COALESCE(ROUND(AVG("Total")::numeric, 0), 0)::float AS ticket
-      FROM "CLIENTES"
-      WHERE "Estado" = 'Cerrada'
-        AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-    ),
-    anterior AS (
-      SELECT
-        COUNT(DISTINCT "Orden_Nu")::int AS ordenes,
-        COALESCE(SUM("Total"), 0)::float AS ingresos,
-        COALESCE(ROUND(AVG("Total")::numeric, 0), 0)::float AS ticket
-      FROM "CLIENTES"
-      WHERE "Estado" = 'Cerrada'
-        AND "Fecha" >= $3::timestamp AND "Fecha" <= $4::timestamp
-    )
-    SELECT
-      a.ingresos AS ingresos_actual,
-      p.ingresos AS ingresos_anterior,
-      a.ordenes AS ordenes_actual,
-      p.ordenes AS ordenes_anterior,
-      a.ticket AS ticket_actual,
-      p.ticket AS ticket_anterior,
-      ROUND(((a.ingresos - p.ingresos) / NULLIF(p.ingresos, 0) * 100)::numeric, 1)::float AS pct_cambio_ingresos,
-      ROUND(((a.ordenes - p.ordenes)::numeric / NULLIF(p.ordenes, 0) * 100)::numeric, 1)::float AS pct_cambio_ordenes,
-      ROUND(((a.ticket - p.ticket) / NULLIF(p.ticket, 0) * 100)::numeric, 1)::float AS pct_cambio_ticket
-    FROM actual a, anterior p
-  `, [desdeActual, hastaActual, desdeAnterior, hastaAnterior]);
-
-  const row = res.rows?.[0] || {};
+export async function getComparativa(desde: string, hasta: string): Promise<ComparativaResult> {
+  const actual = await getKPIs(desde, hasta);
+  let prevDesde: string | undefined;
+  let prevHasta: string | undefined;
+  if (desde && hasta) {
+    const d = new Date(desde);
+    const h = new Date(hasta);
+    const diff = h.getTime() - d.getTime();
+    prevHasta = new Date(d.getTime() - 1).toISOString();
+    prevDesde = new Date(d.getTime() - diff - 1).toISOString();
+  } else {
+    prevDesde = desde;
+    prevHasta = hasta;
+  }
+  const anterior = await getKPIs(prevDesde!, prevHasta!);
+  const p = (a: number, b: number) => (b === 0 ? 0 : ((a - b) / b) * 100);
   return {
-    ingresos_actual: row.ingresos_actual || 0,
-    ingresos_anterior: row.ingresos_anterior || 0,
-    ordenes_actual: row.ordenes_actual || 0,
-    ordenes_anterior: row.ordenes_anterior || 0,
-    ticket_actual: row.ticket_actual || 0,
-    ticket_anterior: row.ticket_anterior || 0,
-    pct_cambio_ingresos: row.pct_cambio_ingresos || 0,
-    pct_cambio_ordenes: row.pct_cambio_ordenes || 0,
-    pct_cambio_ticket: row.pct_cambio_ticket || 0,
+    ingresos_actual: actual.ingresos_totales,
+    ingresos_anterior: anterior.ingresos_totales,
+    ordenes_actual: actual.total_ordenes,
+    ordenes_anterior: anterior.total_ordenes,
+    ticket_actual: actual.ticket_promedio,
+    ticket_anterior: anterior.ticket_promedio,
+    pct_cambio_ingresos: p(actual.ingresos_totales, anterior.ingresos_totales),
+    pct_cambio_ordenes: p(actual.total_ordenes, anterior.total_ordenes),
+    pct_cambio_ticket: p(actual.ticket_promedio, anterior.ticket_promedio),
   };
 }
 
-// ─────────────────────────────────────────────
-// QUERY 10: ANÁLISIS POR CATEGORÍA
-// ─────────────────────────────────────────────
-
-export interface CategoryRow {
-  categoria: string;
-  ordenes: number;
-  unidades: number;
-  ingresos: number;
-  pct_participacion: number;
-}
-
-export async function getCategoryBreakdown(desde: string, hasta: string): Promise<CategoryRow[]> {
-  const res = await query(`
-    SELECT
-      COALESCE(m."CATEGORIA", 'Sin categoría') AS categoria,
-      COUNT(DISTINCT p."Orden_Nu")::int AS ordenes,
-      SUM(p."CANTIDAD")::int AS unidades,
-      SUM(p."TOTAL")::float AS ingresos,
-      ROUND(
-        SUM(p."TOTAL")::numeric / 
-        NULLIF(SUM(SUM(p."TOTAL")) OVER(), 0) * 100
-      , 1)::float AS pct_participacion
-    FROM "PEDIDOS" p
-    LEFT JOIN "MENU" m ON p."ARTICULO" = m."ARTICULO"
-    JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
-    GROUP BY m."CATEGORIA"
-    ORDER BY ingresos DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 11: TOP PRODUCTOS CON TENDENCIA
-// ─────────────────────────────────────────────
-
-export interface ProductTrendRow {
-  producto: string;
-  categoria: string;
-  unidades: number;
-  ingresos: number;
-  ticket_promedio: number;
-  tendencia: string; // 'subiendo', 'estable', 'bajando'
-}
-
-export async function getProductTrends(desde: string, hasta: string): Promise<ProductTrendRow[]> {
-  const res = await query(`
-    WITH productos AS (
-      SELECT
-        p."ARTICULO",
-        COALESCE(m."CATEGORIA", 'Sin categoría') AS categoria,
-        SUM(p."CANTIDAD")::int AS unidades,
-        SUM(p."TOTAL")::float AS ingresos,
-        COUNT(DISTINCT p."Orden_Nu")::int AS ordenes,
-        ROUND(AVG(p."TOTAL")::numeric, 0)::float AS ticket_promedio,
-        EXTRACT(DAY FROM MAX(c."Fecha"))::int AS dia_ultimo,
-        EXTRACT(DAY FROM MIN(c."Fecha"))::int AS dia_primero
-      FROM "PEDIDOS" p
-      LEFT JOIN "MENU" m ON p."ARTICULO" = m."ARTICULO"
-      JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
-      WHERE c."Estado" = 'Cerrada'
-        AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
-      GROUP BY p."ARTICULO", m."CATEGORIA"
-    )
-    SELECT
-      "ARTICULO" AS producto,
-      categoria,
-      unidades,
-      ingresos,
-      ticket_promedio,
-      CASE
-        WHEN (dia_ultimo - dia_primero) > 5 AND unidades > 10 THEN 'subiendo'
-        WHEN (dia_ultimo - dia_primero) < 3 AND unidades > 5 THEN 'bajando'
-        ELSE 'estable'
-      END AS tendencia
-    FROM productos
-    ORDER BY ingresos DESC
-    LIMIT 20
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 12: ANÁLISIS DE RETENCIÓN (CLIENTES RECURRENTES)
-// ─────────────────────────────────────────────
-
-export interface RetentionRow {
-  segmento: string;
-  clientes: number;
-  ordenes: number;
-  ingresos: number;
-  pct_clientes: number;
-}
-
-export async function getRetentionAnalysis(desde: string, hasta: string): Promise<RetentionRow[]> {
-  const res = await query(`
-    WITH clientes AS (
-      SELECT
-        "Nombre_Cliente",
-        COUNT(*)::int AS visitas,
-        SUM("Total")::float AS total_gastado
-      FROM "CLIENTES"
-      WHERE "Estado" = 'Cerrada'
-        AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-        AND "Nombre_Cliente" IS NOT NULL
-        AND "Nombre_Cliente" != ''
-      GROUP BY "Nombre_Cliente"
-    )
-    SELECT
-      CASE
-        WHEN visitas >= 5 THEN 'Frecuentes (5+)'
-        WHEN visitas >= 3 THEN 'Regulares (3-4)'
-        WHEN visitas >= 2 THEN 'Ocasionales (2)'
-        ELSE 'Primera vez'
-      END AS segmento,
-      COUNT(*)::int AS clientes,
-      SUM(visitas)::int AS ordenes,
-      SUM(total_gastado)::float AS ingresos,
-      ROUND(
-        COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER(), 0) * 100
-      , 1)::float AS pct_clientes
-    FROM clientes
-    GROUP BY segmento
-    ORDER BY clientes DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 13: DISTRIBUCIÓN DE TICKET (BINNING)
-// ─────────────────────────────────────────────
-
-export interface TicketDistRow {
-  rango: string;
-  ordenes: number;
-  ingresos: number;
-  pct_ordenes: number;
-}
-
-export async function getTicketDistribution(desde: string, hasta: string): Promise<TicketDistRow[]> {
-  const res = await query(`
-    SELECT
-      CASE
-        WHEN "Total" >= 50000 THEN '₡50,000+'
-        WHEN "Total" >= 30000 THEN '₡30,000-50,000'
-        WHEN "Total" >= 20000 THEN '₡20,000-30,000'
-        WHEN "Total" >= 10000 THEN '₡10,000-20,000'
-        WHEN "Total" >= 5000 THEN '₡5,000-10,000'
-        ELSE 'Menos de ₡5,000'
-      END AS rango,
-      COUNT(*)::int AS ordenes,
-      SUM("Total")::float AS ingresos,
-      ROUND(COUNT(*)::numeric / NULLIF(SUM(COUNT(*)) OVER(), 0) * 100, 1)::float AS pct_ordenes
-    FROM "CLIENTES"
-    WHERE "Estado" = 'Cerrada'
-      AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-    GROUP BY rango
-    ORDER BY MIN("Total") DESC
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 14: PRODUCTOS MAS VENDIDOS POR TURNO
-// ─────────────────────────────────────────────
-
-export interface ShiftProductRow {
-  turno: string;
-  producto: string;
-  unidades: number;
-}
-
-export async function getProductsByShift(desde: string, hasta: string): Promise<ShiftProductRow[]> {
-  const res = await query(`
-    SELECT
-      CASE
-        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 6 AND 11 THEN 'Desayuno'
-        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 12 AND 15 THEN 'Almuerzo'
-        WHEN EXTRACT(HOUR FROM c."Fecha" AT TIME ZONE 'America/Costa_Rica') BETWEEN 16 AND 20 THEN 'Cena'
-        ELSE 'Noche'
-      END AS turno,
-      p."ARTICULO" AS producto,
-      SUM(p."CANTIDAD")::int AS unidades
-    FROM "PEDIDOS" p
-    JOIN "CLIENTES" c ON p."Orden_Nu" = c."Orden_Nu"
-    WHERE c."Estado" = 'Cerrada'
-      AND c."Fecha" >= $1::timestamp AND c."Fecha" <= $2::timestamp
-    GROUP BY turno, p."ARTICULO"
-    HAVING SUM(p."CANTIDAD") >= 3
-  `, [desde, hasta]);
-
-  return res.rows || [];
-}
-
-// ─────────────────────────────────────────────
-// QUERY 15: MÉTRICAS DE VELOCIDAD (TIEMPO PROMEDIO)
-// ─────────────────────────────────────────────
-
-export interface SpeedMetricsRow {
-  metric: string;
-  valor: number;
-  descripcion: string;
-}
-
-export async function getSpeedMetrics(desde: string, hasta: string): Promise<SpeedMetricsRow[]> {
-  const res = await query(`
-    WITH metricas AS (
-      SELECT
-        COUNT(DISTINCT "Orden_Nu")::int AS ordenes,
-        SUM("Total")::float AS ingresos,
-        COUNT(*)::int AS dias_operativos,
-        MIN("Fecha")::date AS primer_dia,
-        MAX("Fecha")::date AS ultimo_dia
-      FROM "CLIENTES"
-      WHERE "Estado" = 'Cerrada'
-        AND "Fecha" >= $1::timestamp AND "Fecha" <= $2::timestamp
-    )
-    SELECT
-      'órdenes_día' AS metric,
-      ROUND(ordenes::numeric / NULLIF(dias_operativos, 0), 1)::float AS valor,
-      'Órdenes promedio por día' AS descripcion
-    FROM metricas
-    UNION ALL
-    SELECT
-      'ingresos_día',
-      ROUND(ingresos::numeric / NULLIF(dias_operativos, 0), 0)::float,
-      'Ingresos promedio por día'
-    FROM metricas
-    UNION ALL
-    SELECT
-      'ticket_promedio',
-      ROUND(ingresos::numeric / NULLIF(ordenes, 0), 0)::float,
-      'Ticket promedio por orden'
-    FROM metricas
-    UNION ALL
-    SELECT
-      'dias_operativos',
-      dias_operativos::float,
-      'Días operativos en el período'
-    FROM metricas
-  `, [desde, hasta]);
-
-  return res.rows || [];
+export function buildDateRange(periodo: string, desde?: string, hasta?: string) {
+  return getCRDateRange(periodo, desde, hasta);
 }

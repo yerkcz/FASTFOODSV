@@ -4,8 +4,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel, parseHora } from "@/lib/timeUtils";
-import { useAdaptivePolling } from "@/lib/useAdaptivePolling";
-import { type Product, type CartItem } from "@/types";
 
 const CHEF_ICON = "M12 3c-1.2 5.4-6 6-6 12h12c0-6-4.8-6.6-6-12zM6 17h12M10 21v-4M14 21v-4";
 
@@ -61,9 +59,9 @@ export default function MesasPage() {
     
     // Add Products Modal State
     const [showAddProducts, setShowAddProducts] = useState(false);
-    const [menuProducts, setMenuProducts] = useState<CartItem[]>([]);
+    const [menuProducts, setMenuProducts] = useState<any[]>([]);
     const [loadingMenu, setLoadingMenu] = useState(false);
-    const [selectedProducts, setSelectedProducts] = useState<CartItem[]>([]);
+    const [selectedProducts, setSelectedProducts] = useState<any[]>([]);
     const [addingProducts, setAddingProducts] = useState(false);
     const [productSearch, setProductSearch] = useState("");
     const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
@@ -71,7 +69,7 @@ export default function MesasPage() {
     // Replace item state
     const [replacingItemId, setReplacingItemId] = useState<string | null>(null);
     const [replaceSearch, setReplaceSearch] = useState("");
-    const [replaceMenuProducts, setReplaceMenuProducts] = useState<CartItem[]>([]);
+    const [replaceMenuProducts, setReplaceMenuProducts] = useState<any[]>([]);
     const [loadingReplaceMenu, setLoadingReplaceMenu] = useState(false);
     const [replacingInProgress, setReplacingInProgress] = useState(false);
     const [replaceCantidad, setReplaceCantidad] = useState<number>(1);
@@ -100,16 +98,10 @@ export default function MesasPage() {
         finally { setLoading(false); }
     }, [API_KEY]);
 
-    // Polling adaptativo para la lista de mesas: 15s activo, 30s idle, 60s background
-    useAdaptivePolling(fetchTables, {
-        activeIntervalMs: 15000,
-        idleIntervalMs: 30000,
-        backgroundIntervalMs: 60000,
-        hasActiveData: tables.length > 0,
-    });
-
     useEffect(() => {
         fetchTables();
+        const interval = setInterval(fetchTables, 10000);
+        return () => clearInterval(interval);
     }, [fetchTables]);
 
     const openOrder = async (table: Table) => {
@@ -121,7 +113,7 @@ export default function MesasPage() {
         window.history.pushState({ mesaDetail: true }, '', '/mesas');
         try {
             const res = await fetch(`/api/admin/table-details?orden_nu=${table.orden_nu}`, {
-                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" }
+                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -145,7 +137,7 @@ export default function MesasPage() {
     const refreshOrderDetails = useCallback(async (table: Table) => {
         try {
             const res = await fetch(`/api/admin/table-details?orden_nu=${table.orden_nu}`, {
-                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" }
+                headers: { "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" }
             });
             if (res.ok) {
                 const data = await res.json();
@@ -171,7 +163,7 @@ export default function MesasPage() {
         finally { setLoadingMenu(false); }
     };
 
-    const addProductToSelection = (product: Product) => {
+    const addProductToSelection = (product: any) => {
         setSelectedProducts(prev => {
             const existing = prev.find(p => p.id === product.id);
             if (existing) {
@@ -196,7 +188,7 @@ export default function MesasPage() {
         try {
             const res = await fetch("/api/admin/add-items", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" },
+                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" },
                 body: JSON.stringify({
                     orden_nu: targetOrdenNu,
                     items: selectedProducts.map(p => ({ name: p.name, quantity: p.quantity, notes: p.notes || "" }))
@@ -242,7 +234,7 @@ export default function MesasPage() {
         try {
             const res = await fetch("/api/admin/replace-item", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" },
+                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" },
                 body: JSON.stringify({ 
                     itemId: replacingItemId, 
                     newArticulo,
@@ -269,7 +261,7 @@ export default function MesasPage() {
         if (selectedOrder) {
             detailPollRef.current = setInterval(() => {
                 refreshOrderDetails(selectedOrder);
-            }, 8000);
+            }, 5000);
         }
         return () => {
             if (detailPollRef.current) clearInterval(detailPollRef.current);
@@ -281,7 +273,7 @@ export default function MesasPage() {
         try {
             const res = await fetch("/api/kitchen/mark-ready", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({ itemId })
             });
             if (res.ok) {
@@ -308,7 +300,7 @@ export default function MesasPage() {
         try {
             const res = await fetch("/api/admin/close-table", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "admin123" },
+                headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" },
                 body: JSON.stringify({
                     ordenNu: selectedOrder.orden_nu,
                     forma_pago: paymentMethod,
@@ -515,7 +507,7 @@ export default function MesasPage() {
                                     <div role="status" style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>No se encontraron productos</div>
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
-                                        {menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product: CartItem) => (
+                                        {menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product: any) => (
                                             <div 
                                                 key={product.id} 
                                                 onClick={() => addProductToSelection(product)} 
@@ -629,7 +621,7 @@ export default function MesasPage() {
                                     <div style={{ textAlign: 'center', padding: '40px', color: '#5f6368' }}>No se encontraron productos</div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                        {replaceMenuProducts.filter(p => replaceSearch === "" || p.name.toLowerCase().includes(replaceSearch.toLowerCase())).map((product: Product) => (
+                                        {replaceMenuProducts.filter(p => replaceSearch === "" || p.name.toLowerCase().includes(replaceSearch.toLowerCase())).map((product: any) => (
                                             <div 
                                                 key={product.id} 
                                                 onClick={() => setReplaceSelectedProduct(product.name)}

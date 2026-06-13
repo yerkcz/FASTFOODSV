@@ -16,6 +16,7 @@ export async function generateInvoice(
     const doc = new jsPDF({ unit: "mm", format: "a4" });
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 25;
+    const contentWidth = pageWidth - margin * 2;
 
     // Col X positions
     const colNameX = margin;
@@ -26,7 +27,7 @@ export async function generateInvoice(
     // Load logo
     let logoData: string | null = null;
     try {
-        const response = await fetch("/logoHide.png");
+        const response = await fetch("/LogoFastF.jpeg");
         const blob = await response.blob();
         logoData = await new Promise<string>((resolve) => {
             const reader = new FileReader();
@@ -55,14 +56,14 @@ export async function generateInvoice(
     doc.setTextColor(13, 17, 23);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(24);
-    doc.text("HIDEAWAY", pageWidth / 2, y, { align: "center" });
+    doc.text("FAST FOOD SAN VICENTE", pageWidth / 2, y, { align: "center" });
 
     // Subtitle
     y += 6;
     doc.setFontSize(9);
     doc.setTextColor(87, 96, 106);
     doc.setFont("helvetica", "normal");
-    doc.text("RESTAURANTE & CAFÉ", pageWidth / 2, y, { align: "center", charSpace: 1 });
+    doc.text("Cruce San Vicente, San Carlos", pageWidth / 2, y, { align: "center", charSpace: 1 });
 
     y += 15;
 
@@ -215,8 +216,8 @@ export async function generateInvoice(
 
     // Save
     const fileName = ordenNu
-        ? `Hideaway_Comprobante_${ordenNu}.pdf`
-        : `Hideaway_Comprobante_${Date.now()}.pdf`;
+        ? `FastFoodSV_Comprobante_${ordenNu}.pdf`
+        : `FastFoodSV_Comprobante_${Date.now()}.pdf`;
 
     doc.save(fileName);
 }

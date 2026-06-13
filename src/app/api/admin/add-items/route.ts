@@ -1,97 +1,37 @@
-import { NextResponse } from 'next/server';
-import { query, getClient } from '@/lib/db';
-import { refreshAppSheetCache } from '@/lib/appsheet';
-import { cache, CACHE_KEYS } from '@/lib/cache';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
 
-export async function POST(request: Request) {
-    try {
-        const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { orden_nu, items } = body;
+    if (!orden_nu) return jsonError('orden_nu requerido');
+    if (!Array.isArray(items)) return jsonError('items requerido');
 
-        const body = await request.json();
-        const { orden_nu, items } = body;
-
-        if (!orden_nu) {
-            return NextResponse.json({ error: 'Debe indicar el número de orden' }, { status: 400 });
-        }
-
-        if (!items || !Array.isArray(items) || items.length === 0) {
-            return NextResponse.json({ error: 'Debe incluir al menos un artículo' }, { status: 400 });
-        }
-
-        const ordenRes = await query(
-            `SELECT "Orden_Nu", "Estado" FROM "CLIENTES" WHERE "Orden_Nu" = $1`,
-            [orden_nu]
-        );
-
-        if (ordenRes.rows.length === 0) {
-            return NextResponse.json({ error: 'Orden no encontrada' }, { status: 404 });
-        }
-
-        if (ordenRes.rows[0].Estado !== 'Abierta') {
-            return NextResponse.json({ error: 'La orden ya está cerrada' }, { status: 400 });
-        }
-
-        const itemNames = items.map((i: any) => i.name);
-        const placeholders = itemNames.map((_, i) => `$${i + 1}`).join(',');
-        const menuRes = await query(
-            `SELECT "ARTICULO", "PRECIO" FROM "MENU" WHERE "ARTICULO" IN (${placeholders})`,
-            itemNames
-        );
-
-        const menuMap = new Map();
-        menuRes.rows.forEach(r => menuMap.set(r.ARTICULO, Number(r.PRECIO)));
-
-        for (const item of items) {
-            if (!menuMap.has(item.name)) {
-                return NextResponse.json({ error: `Artículo no encontrado en el menú: ${item.name}` }, { status: 400 });
-            }
-        }
-
-        const { client, release } = await getClient();
-
-        try {
-            await client.query('BEGIN');
-
-            for (const item of items) {
-                const pedidoId = crypto.randomUUID().substring(0, 8).toUpperCase();
-                const realPrice = menuMap.get(item.name);
-                const itemTotal = realPrice * item.quantity;
-
-                await client.query(
-                    `INSERT INTO "PEDIDOS" 
-                     ("ID", "Orden_Nu", "ARTICULO", "PRECIO", "CANTIDAD", "NOTAS", "LISTO", "HoraRegistro", "TOTAL") 
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
-                    [pedidoId, orden_nu, item.name, realPrice, item.quantity, item.notes || null, false, itemTotal]
-                );
-            }
-
-            await client.query('COMMIT');
-
-            cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
-            cache.invalidate(CACHE_KEYS.TABLES_OPEN);
-            refreshAppSheetCache().catch(console.error);
-
-            return NextResponse.json({
-                success: true,
-                orden_nu,
-                items_added: items.length
-            });
-
-        } catch (dbError) {
-            await client.query('ROLLBACK');
-            throw dbError;
-        } finally {
-            release();
-        }
-
-    } catch (error) {
-        console.error('Error adding items to order:', error);
-        return NextResponse.json(
-            { error: 'Error interno al agregar artículos' },
-            { status: 500 }
-        );
+    const supabase = getServerSupabase();
+    for (const it of items) {
+      const { data: prod } = await supabase
+        .from('productos')
+        .select('id, precio, nombre')
+        .eq('id', it.producto_id)
+        .single() as { data: any; error: any };
+      const precio = prod ? Number(prod.precio) : Number(it.precio_unitario);
+      const nombre = prod?.nombre || it.nombre_producto;
+      const cant = Number(it.cantidad) || 1;
+      await (supabase.from('orden_items') as any).insert({
+        orden_id: orden_nu,
+        producto_id: prod?.id || null,
+        nombre_producto: nombre,
+        precio_unitario: precio,
+        cantidad: cant,
+        subtotal: precio * cant,
+        notas: it.notas || null,
+      });
     }
+
+    return jsonOk({ success: true });
+  } catch (err) {
+    console.error('Error POST /api/admin/add-items:', err);
+    return jsonError('Error al agregar items', 500);
+  }
 }

@@ -1,7 +1,7 @@
 /**
- * Cache en Memoria con TTL — Hideaway POS
- * 
- * Estrategia Stale-While-Revalidate para reducir consultas a Neon DB.
+ * Cache en Memoria con TTL — Fast Food San Vicente POS
+ *
+ * Estrategia Stale-While-Revalidate para reducir consultas a Supabase.
  * Cada clave de cache tiene un TTL configurable. Cuando el TTL expira,
  * la siguiente solicitud obtiene el dato fresco y lo re-cachea.
  * 
@@ -130,7 +130,7 @@ class MemoryCache {
 
 // ——— Singleton global del cache ———
 // Usamos globalThis para sobrevivir a hot-reloads en desarrollo
-const globalKey = '__hideaway_cache__';
+const globalKey = '__ffsv_cache__';
 
 function getGlobalCache(): MemoryCache {
   if (!(globalThis as Record<string, unknown>)[globalKey]) {

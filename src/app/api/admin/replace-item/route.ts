@@ -1,89 +1,44 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
-import { refreshAppSheetCache } from '@/lib/appsheet';
-import { cache, CACHE_KEYS } from '@/lib/cache';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
 
-export async function POST(request: Request) {
-    try {
-        const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { itemId, newProductId, cantidad, notas } = body;
+    if (!itemId) return jsonError('itemId requerido');
 
-        const body = await request.json();
-        const { itemId, newArticulo, cantidad, nota } = body;
-
-        if (!itemId || !newArticulo) {
-            return NextResponse.json({ error: 'Faltan parámetros: itemId y newArticulo requeridos' }, { status: 400 });
-        }
-
-        // 1. Verify item exists and get current quantity
-        const itemRes = await query(
-            `SELECT "ID", "Orden_Nu", "CANTIDAD" FROM "PEDIDOS" WHERE "ID" = $1`,
-            [itemId]
-        );
-
-        if (itemRes.rows.length === 0) {
-            return NextResponse.json({ error: 'Ítem no encontrado' }, { status: 404 });
-        }
-
-        const currentItem = itemRes.rows[0];
-        const finalCantidad = cantidad && cantidad > 0 ? cantidad : currentItem.CANTIDAD;
-
-        // 2. Verify the order is still open
-        const orderRes = await query(
-            `SELECT "Estado" FROM "CLIENTES" WHERE "Orden_Nu" = $1`,
-            [currentItem.Orden_Nu]
-        );
-
-        if (orderRes.rows.length === 0 || orderRes.rows[0].Estado !== 'Abierta') {
-            return NextResponse.json({ error: 'La orden ya está cerrada' }, { status: 400 });
-        }
-
-        // 3. Get the new article's price from MENU
-        const menuRes = await query(
-            `SELECT "ARTICULO", "PRECIO" FROM "MENU" WHERE "ARTICULO" = $1`,
-            [newArticulo]
-        );
-
-        if (menuRes.rows.length === 0) {
-            return NextResponse.json({ error: `Artículo no encontrado en el menú: ${newArticulo}` }, { status: 404 });
-        }
-
-        const newPrice = Number(menuRes.rows[0].PRECIO);
-        const newTotal = newPrice * finalCantidad;
-
-        // 4. Update the item in place (preserves ID, Orden_Nu, HoraRegistro)
-        await query(
-            `UPDATE "PEDIDOS" 
-             SET "ARTICULO" = $1, "PRECIO" = $2, "TOTAL" = $3, "CANTIDAD" = $4, "NOTAS" = $5, "LISTO" = false 
-             WHERE "ID" = $6`,
-            [newArticulo, newPrice, newTotal, finalCantidad, nota || null, itemId]
-        );
-
-        // 5. Invalidar caches + Sync AppSheet
-        cache.invalidate(CACHE_KEYS.KITCHEN_ORDERS);
-        cache.invalidate(CACHE_KEYS.TABLES_OPEN);
-        refreshAppSheetCache().catch(console.error);
-
-        return NextResponse.json({
-            success: true,
-            message: 'Artículo reemplazado exitosamente',
-            replaced: {
-                itemId,
-                newArticulo,
-                newPrice,
-                newTotal,
-                cantidad: finalCantidad,
-                nota: nota || null
-            }
-        });
-
-    } catch (error) {
-        console.error('Error replacing item:', error);
-        return NextResponse.json(
-            { error: 'Error interno al reemplazar el artículo' },
-            { status: 500 }
-        );
+    const supabase = getServerSupabase();
+    const updates: Record<string, unknown> = {};
+    if (newProductId) {
+      const { data: prod } = await supabase
+        .from('productos')
+        .select('id, nombre, precio')
+        .eq('id', newProductId)
+        .single() as { data: any; error: any };
+      if (prod) {
+        updates.producto_id = prod.id;
+        updates.nombre_producto = prod.nombre;
+        updates.precio_unitario = Number(prod.precio);
+        const cant = Number(cantidad) || 1;
+        updates.cantidad = cant;
+        updates.subtotal = Number(prod.precio) * cant;
+      }
     }
+    if (cantidad !== undefined) {
+      const cant = Number(cantidad) || 1;
+      updates.cantidad = cant;
+      const { data: cur } = await supabase.from('orden_items').select('precio_unitario').eq('id', itemId).single() as { data: any; error: any };
+      if (cur) updates.subtotal = Number(cur.precio_unitario) * cant;
+    }
+    if (notas !== undefined) updates.notas = notas;
+
+    if (Object.keys(updates).length > 0) {
+      const { error } = await (supabase.from('orden_items') as any).update(updates).eq('id', itemId);
+      if (error) throw error;
+    }
+    return jsonOk({ success: true });
+  } catch (err) {
+    console.error('Error POST /api/admin/replace-item:', err);
+    return jsonError('Error al reemplazar item', 500);
+  }
 }

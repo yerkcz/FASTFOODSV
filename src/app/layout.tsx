@@ -17,12 +17,12 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Hideaway — Menu Digital",
-  description: "Ordena desde tu mesa en Restaurante Hideaway, Costa Rica",
+  title: "Fast Food San Vicente — POS",
+  description: "Sistema POS de Fast Food San Vicente, Costa Rica",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Hideaway Menu",
+    title: "Fast Food San Vicente",
   },
 };
 

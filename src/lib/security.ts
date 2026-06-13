@@ -13,6 +13,7 @@ export function checkOperatingHours(): { isOpen: boolean; currentHourCR: number 
     // Get current time in Costa Rica timezone
     const nowStr = new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" });
     const now = new Date(nowStr);
+    const originDate = new Date();
 
     // We use getHours() from the CR localized date string
     const currentHourCR = now.getHours();
@@ -142,13 +143,12 @@ export function sanitize(str: string, maxLength: number = 200): string {
 
 // Ensure the API key is valid
 export function validateApiKey(key: string | null): boolean {
-    const validKey = process.env.SELF_ORDER_API_KEY || process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY;
+    const validKey = process.env.SELF_ORDER_API_KEY;
     if (!validKey) {
         console.error("SELF_ORDER_API_KEY is not configured in environment.");
         return false;
     }
-    if (!key) return false;
-    return timingSafeCompare(key, validKey);
+    return key === validKey;
 }
 
 // Type to describe expected order payload
@@ -220,9 +220,7 @@ export function validateOrderPayload(body: unknown): { valid: boolean; error?: s
                 name: sanitize(item.name, 100),
                 price: Number(item.price),
                 quantity: Math.floor(item.quantity),
-                notas: typeof (item as Record<string, unknown>).notas === 'string' 
-                    ? sanitize((item as Record<string, unknown>).notas as string, 200) 
-                    : undefined
+                notas: (item as any).notas ? sanitize((item as any).notas, 200) : undefined
             }))
         }
     };

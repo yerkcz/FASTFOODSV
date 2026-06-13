@@ -128,15 +128,19 @@ export default function AdminPortal() {
         setLoading(true);
         setLoginError("");
         try {
-            const res = await fetch("/api/admin/tables", {
-                headers: { "x-admin-key": adminKey }
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setMesaGroups(data.mesa_groups || []);
-                setIsLoggedIn(true);
+            if (adminKey === "0000") {
+                const res = await fetch("/api/admin/tables", {
+                    headers: { "x-admin-key": adminKey }
+                });
+                if (res.ok) {
+                    const data = await res.json();
+                    setMesaGroups(data.mesa_groups || []);
+                    setIsLoggedIn(true);
+                } else {
+                    setLoginError("No se pudo conectar al servidor");
+                }
             } else {
-                setLoginError("Contraseña incorrecta");
+                setLoginError("PIN incorrecto");
             }
         } catch (err) {
             setLoginError("Error de conexión");
@@ -544,9 +548,9 @@ export default function AdminPortal() {
             padding: '0 16px', boxShadow: '0 2px 10px rgba(0,0,0,0.3)', zIndex: 1000, fontFamily: 'Roboto, sans-serif'
         }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <Image src="/logoHide.png" alt="Hideaway" width={36} height={36} style={{ borderRadius: '50%' }} />
+                <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={36} height={36} style={{ borderRadius: '50%' }} />
                 <div>
-                    <h1 style={{ fontSize: "1.1rem", fontWeight: 800, margin: 0, color: "#eef7f0", lineHeight: 1.2 }}>Hideaway</h1>
+                    <h1 style={{ fontSize: "1.1rem", fontWeight: 800, margin: 0, color: "#eef7f0", lineHeight: 1.2 }}>Fast Food San Vicente</h1>
                     <p style={{ fontSize: "0.65rem", margin: 0, color: "rgba(238,247,240,0.7)", letterSpacing: "1px", textTransform: "uppercase" }}>
                         {title}
                     </p>

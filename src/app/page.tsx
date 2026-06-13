@@ -79,9 +79,9 @@ export default function POSPage() {
 
       if (nombreParam) {
         setCliente(nombreParam);
-        localStorage.setItem(`hideaway_name`, nombreParam);
+        localStorage.setItem(`ffsv_name`, nombreParam);
       } else {
-        const savedName = localStorage.getItem(`hideaway_name`);
+        const savedName = localStorage.getItem(`ffsv_name`);
         if (savedName) setCliente(savedName);
       }
     }
@@ -210,8 +210,8 @@ export default function POSPage() {
 
       setIsCheckingTable(true);
       try {
-        const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
-        const savedGuestToken = localStorage.getItem(`hideaway_guest_token_${mesaName}`);
+        const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
+        const savedGuestToken = localStorage.getItem(`ffsv_guest_token_${mesaName}`);
         
         const params = new URLSearchParams({ mesa: mesaName });
         if (savedToken) params.append('session_token', savedToken);
@@ -234,18 +234,18 @@ export default function POSPage() {
 
           // Clean up tokens if table is no longer occupied
           if (!data.isOccupied) {
-            localStorage.removeItem(`hideaway_token_${mesaName}`);
-            localStorage.removeItem(`hideaway_guest_token_${mesaName}`);
+            localStorage.removeItem(`ffsv_token_${mesaName}`);
+            localStorage.removeItem(`ffsv_guest_token_${mesaName}`);
           }
           
           // Frictionless Auto-Join: Save auto-generated guest token if provided
           if (data.guest_token) {
-            localStorage.setItem(`hideaway_guest_token_${mesaName}`, data.guest_token);
+            localStorage.setItem(`ffsv_guest_token_${mesaName}`, data.guest_token);
           }
 
           // If guest token is no longer valid, remove it
           if (data.isOccupied && !data.isGuest && savedGuestToken && !data.guest_token) {
-            localStorage.removeItem(`hideaway_guest_token_${mesaName}`);
+            localStorage.removeItem(`ffsv_guest_token_${mesaName}`);
           }
         }
       } catch (err) {
@@ -281,8 +281,7 @@ export default function POSPage() {
   // Internal/illogical keywords to filter out of the self-order menu
   const EXCLUDED_KEYWORDS = useMemo(() => [
     "adicional", "incluida", "incluido", "huésped", "huesped", "empaque",
-    "llevar", "copa agua", "guillermo", "gian", "fabi", "almuerzo",
-    "aros de calamar", "arroz con palmito", "prueba", "test"
+    "llevar", "copa agua", "guillermo", "gian"
   ], []);
 
   // Filter products
@@ -296,8 +295,8 @@ export default function POSPage() {
       const nameLower = p.name.toLowerCase();
       const isLogical = isWaiterMode || !EXCLUDED_KEYWORDS.some(kw => nameLower.includes(kw));
 
-      // 3. Filter by price: clients (not waiter mode) only see items with price > 0
-      const hasValidPrice = isWaiterMode || (p.price !== null && p.price > 0);
+      // 3. Filter by price: clients (not waiter mode) only see items with price > 200
+      const hasValidPrice = isWaiterMode || (p.price !== null && p.price > 200);
 
       return matchesCategory && matchesSearch && isLogical && hasValidPrice;
 
@@ -422,7 +421,7 @@ export default function POSPage() {
   const handleOwnerUnlock = async () => {
     setIsUnlocking(true);
     try {
-      const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
+      const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
       const res = await fetch("/api/client/unlock-table", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
@@ -461,8 +460,8 @@ export default function POSPage() {
     setErrorMsg("");
 
     try {
-      const savedToken = localStorage.getItem(`hideaway_token_${mesaName}`);
-      const savedGuestToken = localStorage.getItem(`hideaway_guest_token_${mesaName}`);
+      const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
+      const savedGuestToken = localStorage.getItem(`ffsv_guest_token_${mesaName}`);
 
       const res = await fetch("/api/order", {
         method: "POST",
@@ -492,7 +491,7 @@ export default function POSPage() {
 
       // Save the session_token if this is a new order
       if (data.session_token) {
-        localStorage.setItem(`hideaway_token_${mesaName}`, data.session_token);
+        localStorage.setItem(`ffsv_token_${mesaName}`, data.session_token);
         setIsOwner(true);
         setExistingOrdenNu(ordenNu);
       }
@@ -578,9 +577,9 @@ export default function POSPage() {
           {/* ===== HEADER ===== */}
           <div className="header" style={{ flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Image src="/logoHide.png" alt="Hideaway" width={40} height={40} className="header-logo" priority />
+              <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={40} height={40} className="header-logo" priority />
               <div>
-                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>Hideaway</h1>
+                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>Fast Food San Vicente</h1>
                 <p style={{ fontSize: "0.68rem", color: "rgba(238,247,240,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
                   Menú Digital
                 </p>
@@ -626,8 +625,8 @@ export default function POSPage() {
           <div className="header">
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <Image
-                src="/logoHide.png"
-                alt="Hideaway"
+                src="/LogoFastF.jpeg"
+                alt="Fast Food San Vicente"
                 width={40}
                 height={40}
                 className="header-logo"
@@ -642,7 +641,7 @@ export default function POSPage() {
                     color: "#eef7f0",
                   }}
                 >
-                  Hideaway
+                  Fast Food San Vicente
                 </h1>
                 <p
                   style={{

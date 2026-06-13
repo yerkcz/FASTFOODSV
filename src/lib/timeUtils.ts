@@ -1,5 +1,5 @@
 /**
- * Hideaway POS — Shared Time Utilities
+ * Fast Food San Vicente POS — Shared Time Utilities
  * 
  * Single source of truth for all timestamp parsing and formatting.
  * PostgreSQL may return:

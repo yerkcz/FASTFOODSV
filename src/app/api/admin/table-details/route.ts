@@ -1,83 +1,33 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSupabase } from '@/lib/supabase/server-api';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(request: Request) {
-    try {
-        const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export async function GET(request: NextRequest) {
+  try {
+    const url = new URL(request.url);
+    const ordenNu = url.searchParams.get('orden_nu');
+    const ordenesParam = url.searchParams.get('ordenes');
 
-        const url = new URL(request.url);
-        const ordenNu = url.searchParams.get('orden_nu');
-        const ordenesStr = url.searchParams.get('ordenes');
+    const supabase = getServerSupabase();
+    const ordenIds: string[] = [];
+    if (ordenNu) ordenIds.push(ordenNu);
+    if (ordenesParam) ordenIds.push(...ordenesParam.split(',').filter(Boolean));
 
-        if (!ordenNu && !ordenesStr) {
-            return NextResponse.json({ error: 'Falta orden_nu o ordenes' }, { status: 400 });
-        }
-
-        let res;
-        if (ordenesStr) {
-            const ordenesArray = ordenesStr.split(',').map(o => o.trim()).filter(Boolean);
-            if (ordenesArray.length === 0) {
-                 return NextResponse.json({ error: 'Lista de ordenes vacia' }, { status: 400 });
-            }
-            const placeholders = ordenesArray.map((_, i) => `$${i + 1}`).join(',');
-            res = await query(`
-                SELECT 
-                    "ID",
-                    "ARTICULO",
-                    "CANTIDAD",
-                    "PRECIO",
-                    "TOTAL",
-                    "NOTAS",
-                    "LISTO",
-                    "HoraRegistro",
-                    "FechaRegistro",
-                    "Orden_Nu"
-                FROM "PEDIDOS"
-                WHERE "Orden_Nu" IN (${placeholders})
-                ORDER BY "FechaRegistro" ASC
-            `, ordenesArray);
-        } else {
-            res = await query(`
-                SELECT 
-                    "ID",
-                    "ARTICULO",
-                    "CANTIDAD",
-                    "PRECIO",
-                    "TOTAL",
-                    "NOTAS",
-                    "LISTO",
-                    "HoraRegistro",
-                    "FechaRegistro",
-                    "Orden_Nu"
-                FROM "PEDIDOS"
-                WHERE "Orden_Nu" = $1
-                ORDER BY "FechaRegistro" ASC
-            `, [ordenNu]);
-        }
-
-
-        const items = res.rows.map(row => ({
-            ...row,
-            CANTIDAD: Number(row.CANTIDAD || 0),
-            PRECIO: Number(row.PRECIO || 0),
-            TOTAL: Number(row.TOTAL || 0)
-        }));
-
-        return NextResponse.json({ 
-            success: true, 
-            items 
-        });
-
-    } catch (error) {
-        console.error('Error fetching table details:', error);
-        return NextResponse.json(
-            { error: 'Internal server error' },
-            { status: 500 }
-        );
+    if (ordenIds.length === 0) {
+      return NextResponse.json({ items: [] });
     }
+
+    const { data, error } = await supabase
+      .from('orden_items')
+      .select('id, orden_id, nombre_producto, precio_unitario, cantidad, subtotal, notas, estado_kds, listo, hora_registro')
+      .in('orden_id', ordenIds)
+      .order('hora_registro');
+    if (error) throw error;
+
+    return NextResponse.json({ items: data || [] });
+  } catch (err) {
+    console.error('Error GET /api/admin/table-details:', err);
+    return NextResponse.json({ items: [] }, { status: 500 });
+  }
 }

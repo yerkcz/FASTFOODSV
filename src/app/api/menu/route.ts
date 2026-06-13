@@ -1,92 +1,38 @@
-import { NextResponse } from 'next/server';
-import { query } from '@/lib/db';
-import { checkRateLimit, validateApiKey } from '@/lib/security';
-import { cache, CACHE_KEYS, CACHE_TTL } from '@/lib/cache';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
 
-/**
- * GET /api/menu
- * 
- * Retorna la lista completa de productos del menú.
- * 
- * OPTIMIZACIÓN: Cache en memoria de 5 minutos + HTTP Cache-Control.
- * El menú rara vez cambia durante el servicio, así que cachearlo
- * reduce drásticamente las consultas a Neon DB.
- * 
- * Antes:  ~50+ queries/hora (cada carga de página)
- * Después: ~12 queries/hora (1 cada 5 min por instancia)
- */
-export async function GET(request: Request) {
-    try {
-        // 1. Security Check: API Key
-        const apiKey = request.headers.get('x-api-key');
-        if (!validateApiKey(apiKey)) {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export const dynamic = 'force-dynamic';
 
-        // 2. Security Check: Rate Limiting (30 requests per minute for menu read)
-        const ip = request.headers.get('x-forwarded-for') || 'unknown-ip';
-        const rateLimit = checkRateLimit(`menu_${ip}`, 30);
+export async function GET(request: NextRequest) {
+  try {
+    const supabase = getServerSupabase();
+    const { data, error } = await supabase
+      .from('productos')
+      .select('id, nombre, precio, categoria_id, menu_origen, disponible')
+      .eq('disponible', true)
+      .order('categoria_id')
+      .order('orden');
+    if (error) throw error;
 
-        if (!rateLimit.allowed) {
-            return NextResponse.json(
-                { error: 'Too many requests' },
-                { status: 429, headers: { 'Retry-After': '60' } }
-            );
-        }
+    const { data: cats } = await supabase
+      .from('categorias')
+      .select('id, nombre, orden, activo')
+      .eq('activo', true)
+      .order('orden');
 
-        // 3. Intentar obtener del cache primero
-        const cached = cache.get<{ products: unknown[] }>(CACHE_KEYS.MENU);
-        if (cached) {
-            return NextResponse.json(
-                cached,
-                {
-                    status: 200,
-                    headers: {
-                        'X-RateLimit-Remaining': rateLimit.remaining.toString(),
-                        'X-Cache': 'HIT',
-                        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-                        'Access-Control-Allow-Origin': '*'
-                    }
-                }
-            );
-        }
+    const catMap = new Map((cats || []).map((c: any) => [c.id, c.nombre]));
 
-        // 4. Cache MISS — Fetch menu from Neon DB
-        const res = await query('SELECT "ARTICULO" as name, "PRECIO" as price, "CATEGORIA" as category FROM "MENU" ORDER BY "CATEGORIA", "ARTICULO"');
+    const products = (data || []).map((p: any) => ({
+      id: p.id,
+      name: p.nombre,
+      category: catMap.get(p.categoria_id) || 'Otros',
+      price: Number(p.precio) || 0,
+      menu: p.menu_origen,
+    })).filter((p) => p.name && p.name.trim() !== '');
 
-        // Map to the expected format - return ALL products, frontend handles filtering
-        const products = res.rows
-            .map((row, i) => ({
-                id: `DB_${i}`,
-                name: row.name,
-                price: Number(row.price) || 0,
-                category: row.category || 'Otros'
-            }))
-            .filter((p) => p.name && p.name.trim() !== '');
-
-        const payload = { products };
-
-        // 5. Guardar en cache por 5 minutos
-        cache.set(CACHE_KEYS.MENU, payload, CACHE_TTL.MENU);
-
-        return NextResponse.json(
-            payload,
-            {
-                status: 200,
-                headers: {
-                    'X-RateLimit-Remaining': rateLimit.remaining.toString(),
-                    'X-Cache': 'MISS',
-                    'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-                    'Access-Control-Allow-Origin': '*'
-                }
-            }
-        );
-
-    } catch (error) {
-        console.error('Error fetching menu:', error);
-        return NextResponse.json(
-            { error: 'Internal server error while fetching menu' },
-            { status: 500 }
-        );
-    }
+    return jsonOk({ products });
+  } catch (err) {
+    console.error('Error GET /api/menu:', err);
+    return jsonError('Error al cargar el menú', 500);
+  }
 }

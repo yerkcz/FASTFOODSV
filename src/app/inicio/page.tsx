@@ -51,7 +51,7 @@ export default function InicioPortal() {
           </svg>
         </button>
 
-        <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.2px' }}>Hideaway POS</div>
+        <div style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '0.2px' }}>Fast Food San Vicente</div>
 
         {/* Admin quick-access visible in header */}
         <Link
@@ -101,9 +101,9 @@ export default function InicioPortal() {
               color: 'white'
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <Image src="/logoHide.png" alt="Logo" width={44} height={44} style={{ borderRadius: '50%' }} />
+                <Image src="/LogoFastF.jpeg" alt="Logo" width={44} height={44} style={{ borderRadius: '50%' }} />
                 <div>
-                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>Hideaway</div>
+                  <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>Fast Food San Vicente</div>
                   <div style={{ fontSize: '0.78rem', opacity: 0.8 }}>Sistema POS</div>
                 </div>
               </div>
@@ -178,7 +178,7 @@ export default function InicioPortal() {
       {/* Main Content */}
       <div style={{ paddingTop: '72px', paddingBottom: '32px', padding: '72px 16px 32px', maxWidth: '700px', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-          <Image src="/logoHide.png" alt="Hideaway Logo" width={60} height={60} />
+          <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={60} height={60} />
           <h1 style={{ fontSize: '1.35rem', marginTop: '10px', color: '#202124', fontWeight: 600 }}>Panel de Control</h1>
         </div>
 

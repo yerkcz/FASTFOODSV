@@ -1,105 +1,60 @@
-import { NextResponse } from 'next/server';
-import { query, getClient } from '@/lib/db';
-import { refreshAppSheetCache } from '@/lib/appsheet';
+import { NextRequest, NextResponse } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
 
-export async function POST(request: Request) {
-    try {
-        const adminKey = request.headers.get('x-admin-key');
-        if (adminKey !== process.env.ADMIN_API_KEY && adminKey !== process.env.ADMIN_PASSWORD && adminKey !== 'admin123') {
-            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-        }
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { mesa_numero, cliente_nombre, tipo, items } = body;
+    if (!mesa_numero) return jsonError('mesa_numero requerido');
+    if (!Array.isArray(items) || items.length === 0) return jsonError('items requerido');
 
-        const body = await request.json();
-        const { mesa, cliente, notas, items, tipo } = body;
+    const supabase = getServerSupabase();
+    const { data: mesaRow } = await supabase
+      .from('mesas')
+      .select('id')
+      .eq('numero', mesa_numero)
+      .single() as { data: any; error: any };
 
-        // Validations
-        if (!mesa && !cliente) {
-            return NextResponse.json({ error: 'Debe indicar mesa o nombre del cliente' }, { status: 400 });
-        }
-        if (!items || !Array.isArray(items) || items.length === 0) {
-            return NextResponse.json({ error: 'La orden debe contener al menos un artículo' }, { status: 400 });
-        }
-        
-        const tipoFinal = tipo === 'Llevar' ? 'Llevar' : 'Restaurante';
-        const mesaValue = mesa || null; // Could be null for name-only orders
-        // For restaurant table orders: save null if no explicit name given (mesa field already captures the table).
-        // Strip any accidental 'Mesa ' prefix from the name to prevent 'Mesa Mesa X' display bug.
-        const rawCliente = (cliente || '').replace(/^Mesa\s+/i, '').trim();
-        const clienteValue = rawCliente || (tipoFinal === 'Llevar' ? mesa : null);
+    const { data: orden, error: ordenErr } = await (supabase.from('ordenes') as any)
+      .insert({
+        mesa_id: mesaRow?.id,
+        mesa_numero,
+        tipo: tipo || 'mesa',
+        cliente_nombre: cliente_nombre || null,
+        estado: 'abierta',
+      })
+      .select()
+      .single() as { data: any; error: any };
+    if (ordenErr) throw ordenErr;
 
-        // 2. Fetch Prices
-        const itemNames = items.map((i: any) => i.name);
-        if (itemNames.length === 0) {
-            return NextResponse.json({ error: 'Items vacíos' }, { status: 400 });
-        }
-        const placeholders = itemNames.map((_, i) => `$${i + 1}`).join(',');
-        const menuRes = await query(
-            `SELECT "ARTICULO", "PRECIO" FROM "MENU" WHERE "ARTICULO" IN (${placeholders})`,
-            itemNames
-        );
-
-        const menuMap = new Map();
-        menuRes.rows.forEach(r => menuMap.set(r.ARTICULO, Number(r.PRECIO)));
-
-        for (const item of items) {
-            if (!menuMap.has(item.name)) {
-                return NextResponse.json({ error: `Item no encontrado: ${item.name}` }, { status: 400 });
-            }
-        }
-
-        // 3. Transaction
-        const { client, release } = await getClient();
-
-        try {
-            await client.query('BEGIN');
-
-            let ordenNu: string;
-
-            // Each admin order is always NEW (no auto-merge)
-            ordenNu = crypto.randomUUID().substring(0, 8).toUpperCase();
-            const sessionToken = crypto.randomUUID();
-
-            await client.query(
-                `INSERT INTO "CLIENTES" 
-                 ("Orden_Nu", "Fecha", "Tipo", "Nombre_Cliente", "Mesa", "Estado", "session_token") 
-                 VALUES ($1, NOW(), $2, $3, $4, $5, $6)`,
-                [ordenNu, tipoFinal, clienteValue, mesaValue, 'Abierta', sessionToken]
-            );
-
-            for (const item of items) {
-                const pedidoId = crypto.randomUUID().substring(0, 8).toUpperCase();
-                const realPrice = menuMap.get(item.name);
-                const itemTotal = realPrice * item.quantity;
-
-                await client.query(
-                    `INSERT INTO "PEDIDOS" 
-                     ("ID", "Orden_Nu", "ARTICULO", "PRECIO", "CANTIDAD", "NOTAS", "LISTO", "HoraRegistro", "TOTAL") 
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8)`,
-                    [pedidoId, ordenNu, item.name, realPrice, item.quantity, item.notes || notas || null, false, itemTotal]
-                );
-            }
-
-            await client.query('COMMIT');
-
-            refreshAppSheetCache().catch(console.error);
-
-            return NextResponse.json({
-                success: true,
-                orden_nu: ordenNu
-            });
-
-        } catch (dbError) {
-            await client.query('ROLLBACK');
-            throw dbError;
-        } finally {
-            release();
-        }
-
-    } catch (error) {
-        console.error('Error in Admin Create Order:', error);
-        return NextResponse.json(
-            { error: 'Internal server error while processing Admin order' },
-            { status: 500 }
-        );
+    if (tipo === 'mesa') {
+      await (supabase.from('mesas') as any)
+        .update({ estado: 'ocupada', orden_actual_id: orden.id })
+        .eq('numero', mesa_numero);
     }
+
+    for (const it of items) {
+      const { data: prod } = await supabase
+        .from('productos')
+        .select('id, precio, nombre')
+        .eq('id', it.producto_id)
+        .single() as { data: any; error: any };
+      const precio = prod ? Number(prod.precio) : Number(it.precio_unitario);
+      const nombre = prod?.nombre || it.nombre_producto;
+      await (supabase.from('orden_items') as any).insert({
+        orden_id: orden.id,
+        producto_id: prod?.id || null,
+        nombre_producto: nombre,
+        precio_unitario: precio,
+        cantidad: Number(it.cantidad) || 1,
+        subtotal: precio * (Number(it.cantidad) || 1),
+        notas: it.notas || null,
+      });
+    }
+
+    return jsonOk({ success: true, orden_nu: orden.id });
+  } catch (err) {
+    console.error('Error POST /api/admin/create-order:', err);
+    return jsonError('Error al crear orden', 500);
+  }
 }

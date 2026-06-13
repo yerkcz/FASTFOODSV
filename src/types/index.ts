@@ -1,4 +1,4 @@
-// Global TypeScript Definitions for Hideaway POS
+// Global TypeScript Definitions for Fast Food San Vicente POS
 
 export type Product = {
   id: string;

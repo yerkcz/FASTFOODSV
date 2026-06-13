@@ -1,5 +1,5 @@
 /**
- * useAdaptivePolling — Hook de polling inteligente para Hideaway KDS
+ * useAdaptivePolling — Hook de polling inteligente para Fast Food San Vicente KDS
  * 
  * Ajusta dinámicamente la frecuencia de polling basándose en:
  * 1. Si hay items pendientes (más frecuente) o no (menos frecuente)
