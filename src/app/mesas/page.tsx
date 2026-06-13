@@ -48,6 +48,8 @@ function stripMesaPrefix(s: string | null | undefined): string {
 
 // Time utils imported from @/lib/timeUtils — formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel, parseHora
 
+const MESAS_FIJAS = [1, 2, 3, 4, 5, 6];
+
 export default function MesasPage() {
     const router = useRouter();
     const [tables, setTables] = useState<Table[]>([]);
@@ -700,49 +702,82 @@ export default function MesasPage() {
                             <div key={i} className="skeleton skeleton-row" style={{ borderRadius: '8px', width: '100%' }} />
                         ))}
                     </div>
-                ) : tables.length === 0 ? (
-                    <div style={{ textAlign: 'center', padding: '40px', color: '#80868b' }}>No hay mesas en servicio.</div>
                 ) : (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                        {tables.map(t => {
-                            const tColor = getTimeColor(t.fecha);
-                            const tBg = getTimeBg(t.fecha);
-                            const tBadge = getUrgencyBadge(t.fecha);
-                            return (
-                            <div key={t.orden_nu} style={{ backgroundColor: tBg !== 'transparent' ? tBg : 'white', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden', position: 'relative', borderLeft: `4px solid ${tColor}` }}>
-                                <div onClick={() => openOrder(t)} style={{ padding: '14px 16px 14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer' }}>
-                                    <div style={{ minWidth: 0 }}>
-                                        <div style={{ fontSize: '1rem', color: '#202124', fontWeight: 600 }}>
-                                            {t.mesa ? `Mesa ${stripMesaPrefix(t.mesa)}` : ''}{stripMesaPrefix(t.cliente) ? ` — ${stripMesaPrefix(t.cliente)}` : ''}
-                                            {tBadge && <span style={{ marginLeft: '8px', fontSize: '0.68rem', color: tColor, fontWeight: 800 }}>{tBadge}</span>}
+                    <>
+                        <div style={{ fontSize: '0.75rem', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', fontWeight: 600 }}>Mesas</div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', marginBottom: '20px' }}>
+                            {MESAS_FIJAS.map(n => {
+                                const t = tables.find(x => String(x.mesa) === String(n));
+                                const libre = !t;
+                                return (
+                                    <button
+                                        key={n}
+                                        onClick={() => t && openOrder(t)}
+                                        disabled={libre}
+                                        style={{
+                                            background: libre ? 'white' : 'linear-gradient(135deg, #1e8e3e 0%, #166534 100%)',
+                                            border: libre ? '1px solid #dadce0' : 'none',
+                                            borderRadius: '10px',
+                                            padding: '16px 8px',
+                                            cursor: libre ? 'default' : 'pointer',
+                                            color: libre ? '#5f6368' : 'white',
+                                            textAlign: 'center',
+                                            minHeight: '88px',
+                                            display: 'flex',
+                                            flexDirection: 'column',
+                                            justifyContent: 'center',
+                                            gap: '2px',
+                                            boxShadow: '0 1px 2px rgba(0,0,0,0.08)'
+                                        }}
+                                    >
+                                        <div style={{ fontSize: '1.5rem', fontWeight: 800 }}>{n}</div>
+                                        <div style={{ fontSize: '0.65rem', fontWeight: 600, opacity: 0.85 }}>
+                                            {libre ? 'Libre' : 'Ocupada'}
                                         </div>
-                                        <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-                                            <span style={{ color: '#80868b' }}>{formatTime(t.fecha)}</span>
-                                            <span style={{ 
-                                                color: tColor, fontWeight: 700, 
-                                                background: tBg !== 'transparent' ? 'rgba(255,255,255,0.7)' : '#f8f9fa',
-                                                padding: '2px 8px', borderRadius: '10px',
-                                                border: `1px solid ${tColor}`,
-                                                fontSize: '0.8rem',
-                                                display: 'flex', alignItems: 'center', gap: '4px'
-                                            }}>
-                                                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-                                                {getElapsedLabel(t.fecha)}
-                                            </span>
+                                        {!libre && t && (
+                                            <div style={{ fontSize: '0.8rem', fontWeight: 700, marginTop: '2px' }}>
+                                                {formatColones(t.total)}
+                                            </div>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {tables.filter(t => !MESAS_FIJAS.map(String).includes(String(t.mesa))).length > 0 && (
+                            <>
+                                <div style={{ fontSize: '0.75rem', color: '#5f6368', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', fontWeight: 600 }}>🛍️ Para Llevar (Cinta)</div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                    {tables.filter(t => !MESAS_FIJAS.map(String).includes(String(t.mesa))).map(t => {
+                                        const tColor = getTimeColor(t.fecha);
+                                        const tBg = getTimeBg(t.fecha);
+                                        const tBadge = getUrgencyBadge(t.fecha);
+                                        return (
+                                        <div key={t.orden_nu} style={{ backgroundColor: tBg !== 'transparent' ? tBg : 'white', borderRadius: '8px', boxShadow: '0 1px 4px rgba(0,0,0,0.08)', overflow: 'hidden', position: 'relative', borderLeft: `4px solid ${tColor}` }}>
+                                            <div onClick={() => openOrder(t)} style={{ padding: '14px 16px 14px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', cursor: 'pointer' }}>
+                                                <div style={{ minWidth: 0 }}>
+                                                    <div style={{ fontSize: '1rem', color: '#202124', fontWeight: 600 }}>
+                                                        {stripMesaPrefix(t.cliente) || (t.mesa ? `Mesa ${stripMesaPrefix(t.mesa)}` : 'Sin nombre')}
+                                                        {tBadge && <span style={{ marginLeft: '8px', fontSize: '0.68rem', color: tColor, fontWeight: 800 }}>{tBadge}</span>}
+                                                    </div>
+                                                    <div style={{ fontSize: '0.8rem', color: '#5f6368', marginTop: '6px' }}>
+                                                        <span style={{ color: '#80868b' }}>{formatTime(t.fecha)}</span>
+                                                    </div>
+                                                </div>
+                                                <div style={{ textAlign: 'right' }}>
+                                                    <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#202124' }}>{formatColones(t.total)}</div>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: '8px' }}>
-                                        <div style={{ fontSize: '1rem', fontWeight: 700, color: '#202124' }}>{formatColones(t.total)}</div>
-                                        <div style={{ fontSize: '0.7rem', color: '#1e8e3e', marginTop: '2px' }}>Abierta →</div>
-                                    </div>
+                                        );
+                                    })}
                                 </div>
-                            </div>
-                            );
-                        })}
-                    </div>
+                            </>
+                        )}
+                    </>
                 )}
             </div>
-
         </div>
     );
 }
+
