@@ -1536,3 +1536,159 @@ select.has-error {
 .add-product-btn:active {
   transform: scale(0.95);
 }
+
+/* ============================================
+   MODO OSCURO — Fast Food San Vicente
+   Paleta: verde primario (#047857) + acento naranja (#d97706)
+   ============================================ */
+[data-theme="dark"],
+.dark-mode,
+.dark {
+  --background: #0a0f0c;
+  --foreground: #e6f4ec;
+
+  --primary: #10b981;
+  --primary-hover: #34d399;
+  --primary-dark: #047857;
+  --primary-light: rgba(16, 185, 129, 0.12);
+  --primary-surface: rgba(16, 185, 129, 0.18);
+  --primary-glow: rgba(16, 185, 129, 0.25);
+  --primary-gradient: linear-gradient(135deg, #10b981 0%, #047857 50%, #064e3b 100%);
+  --primary-gradient-soft: linear-gradient(135deg, rgba(16, 185, 129, 0.10), rgba(4, 120, 87, 0.05));
+
+  --surface: #0f1714;
+  --surface-border: #1f2a26;
+  --surface-hover: #16201d;
+  --surface-glass: rgba(15, 23, 20, 0.85);
+
+  --accent: #f59e0b;
+  --accent-soft: rgba(245, 158, 11, 0.15);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.12);
+
+  --text-primary: #e6f4ec;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+
+  --card-bg: #11191f;
+  --card-border: #1f2a26;
+  --card-shadow: 0 2px 12px rgba(0, 0, 0, 0.5);
+  --card-shadow-hover: 0 6px 24px rgba(16, 185, 129, 0.18);
+
+  --header-bg: linear-gradient(135deg, #0a0f0c 0%, #11191f 100%);
+  --header-text: #e6f4ec;
+}
+
+[data-theme="dark"] body,
+.dark-mode body,
+.dark body {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+[data-theme="dark"] .pos-layout,
+[data-theme="dark"] .cart-sidebar,
+[data-theme="dark"] .kds-container,
+.dark-mode .pos-layout,
+.dark-mode .cart-sidebar,
+.dark-mode .kds-container {
+  background-color: var(--surface);
+}
+
+[data-theme="dark"] .card,
+[data-theme="dark"] .header,
+[data-theme="dark"] .product-card,
+.dark-mode .card,
+.dark-mode .header,
+.dark-mode .product-card {
+  background-color: var(--card-bg);
+  border-color: var(--card-border);
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] h1,
+[data-theme="dark"] h2,
+[data-theme="dark"] h3,
+[data-theme="dark"] .total,
+[data-theme="dark"] .name,
+[data-theme="dark"] .product-name,
+.dark-mode h1, .dark-mode h2, .dark-mode h3,
+.dark-mode .total, .dark-mode .name,
+.dark-mode .product-name {
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .price,
+.dark-mode .price {
+  color: var(--primary);
+}
+
+[data-theme="dark"] .search-input,
+[data-theme="dark"] input,
+[data-theme="dark"] select,
+[data-theme="dark"] textarea,
+.dark-mode .search-input,
+.dark-mode input,
+.dark-mode select,
+.dark-mode textarea {
+  background-color: var(--surface);
+  color: var(--text-primary);
+  border-color: var(--surface-border);
+}
+
+[data-theme="dark"] .category-pill,
+.dark-mode .category-pill {
+  background-color: var(--card-bg);
+  color: var(--text-secondary);
+  border-color: var(--surface-border);
+}
+
+[data-theme="dark"] .category-pill.active,
+.dark-mode .category-pill.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+[data-theme="dark"] .kds-row,
+[data-theme="dark"] .order-item,
+[data-theme="dark"] .row-old,
+[data-theme="dark"] .row-very-old,
+.dark-mode .kds-row,
+.dark-mode .order-item,
+.dark-mode .row-old,
+.dark-mode .row-very-old {
+  background-color: var(--card-bg) !important;
+  color: var(--text-primary);
+}
+
+[data-theme="dark"] .modal-overlay,
+[data-theme="dark"] .modal-content,
+[data-theme="dark"] .modal,
+.dark-mode .modal-overlay,
+.dark-mode .modal-content,
+.dark-mode .modal {
+  background-color: var(--card-bg);
+  color: var(--text-primary);
+  border-color: var(--surface-border);
+}
+
+/* Toggle de tema — agregar en header */
+.theme-toggle {
+  background: transparent;
+  border: 1px solid currentColor;
+  color: inherit;
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.theme-toggle:hover {
+  background: var(--primary-light);
+  transform: scale(1.05);
+}

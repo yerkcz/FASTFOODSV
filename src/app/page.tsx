@@ -53,15 +53,16 @@ export default function POSPage() {
   const [isWaiterMode, setIsWaiterMode] = useState(false);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initialize table from URL param (e.g. ?mesa=9&nombre=Juan)
+  // Initialize table from URL param (e.g. ?mesa=9&nombre=Juan) o ?llevar=Juan
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
       const mesaParam = params.get("mesa");
       const nombreParam = params.get("nombre");
+      const llevarParam = params.get("llevar");
       const waiterParam = params.get("waiter_mode");
-      
-      if (!mesaParam && waiterParam !== "true") {
+
+      if (!mesaParam && !llevarParam && waiterParam !== "true") {
         router.replace('/inicio');
         return;
       }
@@ -69,17 +70,20 @@ export default function POSPage() {
       if (waiterParam === "true") {
         setIsWaiterMode(true);
       }
-      
+
       if (mesaParam) {
         const isNumeric = /^\d+$/.test(mesaParam.trim());
         setMesaName(isNumeric ? `Mesa ${mesaParam.trim()}` : mesaParam.trim());
+      } else if (llevarParam) {
+        setMesaName(`🥡 ${llevarParam.trim()}`);
       } else if (waiterParam === "true") {
-        setMesaName("Mesa Principal"); // Waiter mode fallback
+        setMesaName("Mesa Principal");
       }
 
-      if (nombreParam) {
-        setCliente(nombreParam);
-        localStorage.setItem(`ffsv_name`, nombreParam);
+      if (nombreParam || llevarParam) {
+        const name = nombreParam || llevarParam || "";
+        setCliente(name);
+        localStorage.setItem(`ffsv_name`, name);
       } else {
         const savedName = localStorage.getItem(`ffsv_name`);
         if (savedName) setCliente(savedName);
@@ -460,8 +464,8 @@ export default function POSPage() {
     setErrorMsg("");
 
     try {
-      const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
-      const savedGuestToken = localStorage.getItem(`ffsv_guest_token_${mesaName}`);
+      const isLlevar = mesaName.startsWith("🥡");
+      const mesaForApi = isLlevar ? "99" : mesaName;
 
       const res = await fetch("/api/order", {
         method: "POST",
@@ -470,10 +474,9 @@ export default function POSPage() {
           "x-api-key": API_KEY,
         },
         body: JSON.stringify({
-          mesa: mesaName,
+          mesa: mesaForApi,
           cliente,
-          session_token: savedToken || undefined,
-          guest_token: savedGuestToken || undefined,
+          tipo: isLlevar ? "llevar" : "mesa",
           waiter_mode: isWaiterMode,
           items: cart.map((i) => ({
             name: i.name,

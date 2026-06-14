@@ -1,7 +1,8 @@
 {
-  "name": "demo-pos",
-  "version": "0.1.0",
+  "name": "fast-food-san-vicente-pos",
+  "version": "1.0.0",
   "private": true,
+  "description": "Sistema POS para Fast Food San Vicente (Costa Rica). 6 mesas fijas + Para Llevar. Régimen Simplificado.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -21,13 +22,10 @@
   },
   "devDependencies": {
     "@types/node": "^20",
-    "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
-    "pg": "^8.20.0",
-    "playwright": "^1.58.2",
     "typescript": "^5"
   }
 }
