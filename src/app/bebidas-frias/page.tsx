@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
+import { formatTime, getTimeColor, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
+import { isColdDrink } from "@/lib/kdsFilters";
 
 type OrderItem = {
   id: string;
@@ -13,8 +14,6 @@ type OrderItem = {
   hora_registro: string;
   mesa: string;
 };
-
-const CHEF_ICON = "M12 3c-1.2 5.4-6 6-6 12h12c0-6-4.8-6.6-6-12zM6 17h12M10 21v-4M14 21v-4";
 
 export default function BebidasFriasPage() {
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -29,7 +28,7 @@ export default function BebidasFriasPage() {
         const filtered: OrderItem[] = [];
         data.orders.forEach((order: any) => {
           order.items.forEach((item: any) => {
-            if (!item.listo && (item.categoria?.includes("Fría") || item.categoria?.includes("Fria") || item.categoria?.includes("Alcoholica") || item.categoria?.includes("Cerveza"))) {
+            if (!item.listo && isColdDrink(item.categoria)) {
               filtered.push(item);
             }
           });
@@ -60,91 +59,80 @@ export default function BebidasFriasPage() {
   };
 
   return (
-    <div style={{ minHeight: "100dvh", backgroundColor: "#f3f4f6", fontFamily: "Roboto, sans-serif" }}>
+    <div className="kds-sub-root">
       {/* Header */}
-      <header style={{
-        position: "fixed", top: 0, left: 0, right: 0, height: "36px",
-        background: "linear-gradient(135deg, #1a73e8 0%, #1557b0 100%)",
-        color: "white", display: "flex", alignItems: "center",
-        justifyContent: "space-between", padding: "0 10px",
-        boxShadow: "0 1px 4px rgba(26,115,232,0.3)", zIndex: 1000
-      }}>
-        <Link href="/inicio" style={{ color: "white", display: "flex", padding: "6px", margin: "-6px" }}>
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <header className="kds-sub-header-bar">
+        <Link href="/inicio" className="kds-sub-back">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
           </svg>
         </Link>
-        <div style={{ fontSize: "0.8rem", fontWeight: 700 }}>🧊 Beb. Frías</div>
-        <button onClick={fetchItems} style={{ background: "none", border: "none", color: "white", cursor: "pointer", padding: "6px", margin: "-6px", minHeight: 'auto' }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <div className="kds-sub-title">🧊 Bebidas Frías</div>
+        <button onClick={fetchItems} className="kds-sub-refresh" aria-label="Actualizar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
           </svg>
         </button>
       </header>
 
-      <div style={{ paddingTop: "44px", paddingBottom: "8px", maxWidth: "900px", margin: "0 auto", padding: "44px 6px 8px" }}>
+      <div className="kds-sub-container">
         {/* Count chip */}
-        <div style={{ backgroundColor: "white", borderRadius: "6px", padding: "4px 10px", marginBottom: "6px", boxShadow: "0 1px 2px rgba(0,0,0,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: "0.7rem", color: "#5f6368" }}>Pendientes</span>
-          <span style={{ fontSize: "1rem", fontWeight: 700, color: "#1a73e8" }}>{items.length}</span>
+        <div className="kds-sub-summary">
+          <span>Pendientes</span>
+          <span className="kds-sub-count">{items.length}</span>
         </div>
 
         {loading ? (
-          <div style={{ textAlign: "center", padding: "24px", color: "#80868b", fontSize: "0.75rem" }}>Cargando...</div>
+          <div className="kds-sub-loading">Cargando...</div>
         ) : items.length === 0 ? (
-          <div style={{ textAlign: "center", padding: "24px" }}>
-            <div style={{ fontSize: "1.5rem", marginBottom: "6px" }}>🎉</div>
-            <div style={{ color: "#80868b", fontWeight: 500, fontSize: "0.75rem" }}>Sin bebidas frías pendientes</div>
+          <div className="kds-sub-empty">
+            <div className="kds-sub-empty-icon">🎉</div>
+            <div>Sin bebidas frías pendientes</div>
           </div>
         ) : (
-          <div style={{ backgroundColor: "white", borderRadius: "6px", boxShadow: "0 1px 3px rgba(0,0,0,0.06)", overflow: "hidden" }}>
+          <div className="kds-sub-table">
             {/* Table header */}
-            <div className="kds-sub-header">
+            <div className="kds-sub-thead">
               <span>✓</span><span>CANT</span><span>ARTÍCULO</span>
-              <span>MESA</span><span style={{ textAlign: "right" }}>HORA</span>
+              <span className="kds-sub-col-mesa">MESA</span><span style={{ textAlign: "right" }}>HORA</span>
             </div>
             {items.map(item => {
               const color = getTimeColor(item.hora_registro);
-              const bg = getTimeBg(item.hora_registro);
               const badge = getUrgencyBadge(item.hora_registro);
               const elapsed = getElapsedMins(item.hora_registro);
               const isUrgent = elapsed >= 40;
+              const isOld = elapsed >= 25;
+
               return (
-                <div key={item.id} className="kds-sub-row" style={{
-                  backgroundColor: bg !== "transparent" ? bg : undefined,
-                  borderLeft: `3px solid ${color}`,
+                <div key={item.id} className={`kds-sub-row ${isUrgent ? 'kds-sub-row-urgent' : isOld ? 'kds-sub-row-old' : ''}`} style={{
+                  borderLeft: `4px solid ${color}`,
                 }}>
                   <button
                     onClick={() => markReady(item.id)}
                     disabled={marking === item.id}
-                    style={{
-                      width: "22px", height: "22px", borderRadius: "50%",
-                      border: `2px solid ${isUrgent ? "#d93025" : "#1a73e8"}`,
-                      backgroundColor: "white", cursor: "pointer",
-                      display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
-                      minHeight: 'auto'
-                    }}
+                    className="kds-sub-check-btn"
+                    style={{ borderColor: isUrgent ? "#ef4444" : "var(--primary)" }}
                   >
                     {marking === item.id ? (
-                      <span style={{ fontSize: "0.5rem" }}>...</span>
+                      <span style={{ fontSize: "0.6rem" }}>...</span>
                     ) : (
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke={isUrgent ? "#d93025" : "#9aa0a6"} strokeWidth="2.5">
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isUrgent ? "#ef4444" : "currentColor"} strokeWidth="3.5">
                         <polyline points="20 6 9 17 4 12"/>
                       </svg>
                     )}
                   </button>
-                  <span style={{ fontSize: "0.68rem", fontWeight: 800, color: "#1a73e8" }}>{item.cantidad}×</span>
-                  <div>
-                    <div style={{ fontSize: "0.65rem", color: "#202124", fontWeight: 600, lineHeight: 1.1 }}>
+                  <span className="kds-sub-qty">{item.cantidad}×</span>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div className="kds-sub-item-name">
                       {item.articulo}
-                      {badge && <span style={{ marginLeft: "4px", fontSize: "0.5rem", background: isUrgent ? "#fce8e6" : "#fef3e2", color, padding: "0 3px", borderRadius: "2px", fontWeight: 800 }}>{badge}</span>}
+                      {badge && <span className="kds-sub-urgency-badge" style={{ color }}>{badge}</span>}
                     </div>
-                    {item.notas && <div style={{ fontSize: "0.55rem", color: "#d93025", fontStyle: "italic", marginTop: "0px", lineHeight: 1.1 }}>📝 {item.notas}</div>}
+                    {item.notas && <div className="kds-sub-notes">📝 {item.notas}</div>}
                   </div>
-                  <span style={{ fontSize: "0.6rem", color: "#5f6368" }}>{item.mesa || "—"}</span>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: "0.58rem", color, fontWeight: 800 }}>{formatTime(item.hora_registro)}</div>
-                    <div style={{ fontSize: "0.48rem", color, fontWeight: 600 }}>{elapsed}m</div>
+                  <span className="kds-sub-col-mesa kds-sub-mesa-text">{item.mesa || "—"}</span>
+                  <div style={{ textAlign: "right", lineHeight: 1.1 }}>
+                    <div style={{ fontSize: "0.8rem", color, fontWeight: 800 }}>{formatTime(item.hora_registro)}</div>
+                    <div style={{ fontSize: "0.7rem", color, fontWeight: 600 }}>{elapsed}m</div>
                   </div>
                 </div>
               );
@@ -160,54 +148,163 @@ export default function BebidasFriasPage() {
 
 const KDS_SUB_STYLES = `
   @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700;800&display=swap');
-  body { margin: 0; }
 
-  .kds-sub-header {
+  .kds-sub-root {
+    min-height: 100dvh;
+    background-color: var(--background);
+    color: var(--text-primary);
+    font-family: 'Roboto', -apple-system, sans-serif;
+  }
+
+  .kds-sub-header-bar {
+    position: fixed; top: 0; left: 0; right: 0; height: 44px;
+    background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+    color: white; display: flex; align-items: center;
+    justify-content: space-between; padding: 0 12px;
+    box-shadow: 0 2px 6px rgba(3,105,161,0.3); z-index: 1000;
+  }
+
+  .kds-sub-back {
+    color: white; display: flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; border-radius: 50%;
+  }
+  .kds-sub-back:active { background: rgba(255,255,255,0.2); }
+
+  .kds-sub-title { font-size: 0.95rem; font-weight: 700; letter-spacing: 0.3px; }
+
+  .kds-sub-refresh {
+    background: none; border: none; color: white; cursor: pointer;
+    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+  }
+  .kds-sub-refresh:active { background: rgba(255,255,255,0.2); }
+
+  .kds-sub-container {
+    padding-top: 52px; padding-bottom: 20px; max-width: 900px; margin: 0 auto; padding-left: 8px; padding-right: 8px;
+  }
+
+  .kds-sub-summary {
+    background: var(--card-bg); border: 1.5px solid var(--card-border);
+    border-radius: 10px; padding: 8px 16px; margin-bottom: 8px;
+    box-shadow: var(--card-shadow); display: flex; justify-content: space-between; align-items: center;
+  }
+  .kds-sub-summary > span:first-child { font-size: 0.85rem; color: var(--text-secondary); font-weight: 600; }
+  .kds-sub-count { font-size: 1.15rem; fontWeight: 800; color: var(--primary); }
+
+  .kds-sub-loading { text-align: center; padding: 40px; color: var(--text-muted); font-size: 0.9rem; }
+
+  .kds-sub-empty { text-align: center; padding: 48px 16px; color: var(--text-muted); }
+  .kds-sub-empty-icon { font-size: 2.5rem; margin-bottom: 8px; }
+
+  .kds-sub-table {
+    background: var(--card-bg); border: 1.5px solid var(--card-border);
+    border-radius: 12px; box-shadow: var(--card-shadow); overflow: hidden;
+  }
+
+  .kds-sub-thead {
     display: grid;
-    grid-template-columns: 28px 32px 1fr 56px 52px;
-    padding: 2px 8px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 0.5rem; color: #5f6368;
-    font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px;
-    gap: 4px;
-    font-family: Roboto, sans-serif;
+    grid-template-columns: 36px 44px 1fr 80px 60px;
+    padding: 8px 12px;
+    background: var(--surface);
+    border-bottom: 1.5px solid var(--surface-border);
+    font-size: 0.72rem; color: var(--text-muted);
+    font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+    gap: 6px;
   }
 
   .kds-sub-row {
     display: grid;
-    grid-template-columns: 28px 32px 1fr 56px 52px;
-    padding: 2px 8px;
+    grid-template-columns: 36px 44px 1fr 80px 60px;
+    padding: 4px 12px;
     align-items: center;
-    border-bottom: 1px solid #f1f3f4;
-    gap: 4px;
+    border-bottom: 1px solid var(--surface-border);
+    gap: 6px;
     transition: background 0.1s;
-    font-family: Roboto, sans-serif;
-    min-height: 26px;
+    background: var(--card-bg);
+    min-height: 32px;
   }
-  .kds-sub-row:active { background: #f0f6ff !important; }
+  .kds-sub-row:last-child { border-bottom: none; }
+  .kds-sub-row:active { background: var(--primary-surface); }
+  .kds-sub-row-urgent { background: rgba(239, 68, 68, 0.08) !important; }
+  .kds-sub-row-old { background: rgba(245, 158, 11, 0.06) !important; }
 
-  /* ========== MOBILE (≤600px) ========== */
+  .kds-sub-check-btn {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--primary);
+    background: var(--card-bg); color: var(--text-muted); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+    min-height: auto; transition: all 0.1s;
+    touch-action: manipulation;
+  }
+  .kds-sub-check-btn:active { background: var(--primary); color: white; }
+
+  .kds-sub-qty { font-size: 0.78rem; font-weight: 800; color: var(--primary); }
+
+  .kds-sub-item-name {
+    font-size: 0.78rem; color: var(--text-primary); fontWeight: 700;
+    line-height: 1.1; word-break: break-word;
+  }
+  
+  .kds-sub-urgency-badge {
+    margin-left: 5px; font-size: 0.54rem; font-weight: 800;
+    background: rgba(239,68,68,0.15); padding: 1px 3px; border-radius: 3px;
+  }
+
+  .kds-sub-notes { font-size: 0.66rem; color: #ef4444; font-style: italic; marginTop: 1px; line-height: 1.05; }
+
+  .kds-sub-mesa-text { font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; }
+
+  /* ========== MOBILE (≤600px) — celular ========== */
   @media (max-width: 600px) {
-    .kds-sub-header, .kds-sub-row {
-      grid-template-columns: 28px 28px 1fr 44px 44px;
-      gap: 3px;
-      padding: 1px 4px;
+    .kds-sub-thead, .kds-sub-row {
+      grid-template-columns: 28px 32px 1fr 44px;
+      gap: 4px;
+      padding: 3px 6px;
+      min-height: 32px;
     }
-    .kds-sub-row { min-height: 28px; }
-    .kds-sub-row button:first-child {
-      width: 28px !important;
-      height: 28px !important;
-      min-width: 28px;
-      min-height: 28px !important;
-    }
+    .kds-sub-col-mesa { display: none !important; }
+    .kds-sub-item-name { font-size: 0.76rem; }
+    .kds-sub-qty { font-size: 0.76rem; }
+    .kds-sub-check-btn { width: 20px; height: 20px; }
   }
 
-  /* ========== TABLET/Desktop (≥601px) ========== */
-  @media (min-width: 601px) {
-    .kds-sub-header, .kds-sub-row {
-      grid-template-columns: 30px 36px 1fr 64px 60px;
+  /* ========== TABLET (601-900px) — ultra compacto, ≥17 pedidos visibles ========== */
+  @media (min-width: 601px) and (max-width: 900px) {
+    .kds-sub-container { max-width: 100%; padding-left: 10px; padding-right: 10px; padding-top: 48px; }
+    .kds-sub-header-bar { height: 40px; }
+    .kds-sub-title { font-size: 0.9rem; }
+    .kds-sub-summary { padding: 5px 12px; margin-bottom: 5px; }
+    .kds-sub-summary > span:first-child { font-size: 0.78rem; }
+    .kds-sub-count { font-size: 1rem; }
+    .kds-sub-thead, .kds-sub-row {
+      grid-template-columns: 32px 40px 1fr 74px 54px;
+      padding: 4px 10px;
       gap: 6px;
+      min-height: 38px;
     }
+    .kds-sub-thead { font-size: 0.66rem; padding: 4px 10px; }
+    .kds-sub-check-btn { width: 26px; height: 26px; }
+    .kds-sub-qty { font-size: 0.84rem; }
+    .kds-sub-item-name { font-size: 0.82rem; }
+    .kds-sub-notes { font-size: 0.7rem; }
+    .kds-sub-mesa-text { font-size: 0.72rem; }
+  }
+
+  /* ========== DESKTOP / monitor (≥901px) ========== */
+  @media (min-width: 901px) {
+    .kds-sub-container { max-width: 1100px; padding-left: 12px; padding-right: 12px; padding-top: 50px; }
+    .kds-sub-header-bar { height: 42px; }
+    .kds-sub-title { font-size: 0.95rem; }
+    .kds-sub-thead, .kds-sub-row {
+      grid-template-columns: 36px 44px 1fr 92px 62px;
+      padding: 5px 12px;
+      gap: 8px;
+      min-height: 42px;
+    }
+    .kds-sub-thead { font-size: 0.7rem; padding: 5px 12px; }
+    .kds-sub-check-btn { width: 28px; height: 28px; }
+    .kds-sub-qty { font-size: 0.88rem; }
+    .kds-sub-item-name { font-size: 0.87rem; }
+    .kds-sub-notes { font-size: 0.75rem; }
+    .kds-sub-mesa-text { font-size: 0.78rem; }
   }
 `;

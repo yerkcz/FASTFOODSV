@@ -1,17 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
-import { checkOperatingHours, sanitize } from '@/lib/security';
+import { sanitize } from '@/lib/security';
 
 export async function POST(request: NextRequest) {
   try {
-    const opsCheck = checkOperatingHours();
-    if (!opsCheck.isOpen) {
-      return NextResponse.json(
-        { error: 'El restaurante se encuentra fuera de horario.' },
-        { status: 403 }
-      );
-    }
-
     const body = await request.json();
     const { mesa, cliente, items, tipo } = body;
 

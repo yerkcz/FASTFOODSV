@@ -10,7 +10,14 @@ export async function GET(request: NextRequest) {
       .from('orden_items')
       .select(`
         id, nombre_producto, cantidad, notas, listo, estado_kds, hora_registro,
-        ordenes!inner ( id, mesa_numero, cliente_nombre, opened_at, estado, tipo )
+        ordenes!inner ( id, mesa_numero, cliente_nombre, opened_at, estado, tipo ),
+        productos (
+          id,
+          categorias (
+            id,
+            nombre
+          )
+        )
       `)
       .in('estado_kds', ['pendiente', 'preparando', 'listo'])
       .eq('ordenes.estado', 'abierta')
@@ -30,6 +37,11 @@ export async function GET(request: NextRequest) {
           items: [],
         });
       }
+      
+      // Get category name
+      const prod = item.productos;
+      const catName = prod?.categorias?.nombre || 'Otros';
+
       ordenesMap.get(oid).items.push({
         id: item.id,
         articulo: item.nombre_producto,
@@ -38,6 +50,7 @@ export async function GET(request: NextRequest) {
         listo: item.listo,
         estado_kds: item.estado_kds,
         hora_registro: item.hora_registro,
+        categoria: catName,
       });
     }
 

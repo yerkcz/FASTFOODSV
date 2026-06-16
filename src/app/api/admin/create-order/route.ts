@@ -1,60 +1,67 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase, jsonError, jsonOk } from '@/lib/supabase/server-api';
+import { NextRequest } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
+
     const body = await request.json();
-    const { mesa_numero, cliente_nombre, tipo, items } = body;
-    if (!mesa_numero) return jsonError('mesa_numero requerido');
+    const { mesa, cliente, tipo, items, notas } = body;
     if (!Array.isArray(items) || items.length === 0) return jsonError('items requerido');
 
     const supabase = getServerSupabase();
+    const isLlevar = tipo === 'Llevar' || tipo === 'llevar';
+    const mesaNumero = isLlevar ? 99 : (Number(mesa) || 99);
+    const clienteNombre = isLlevar ? (cliente || 'Para Llevar') : (cliente ? `${mesa} - ${cliente}` : `Mesa ${mesa}`);
+
     const { data: mesaRow } = await supabase
       .from('mesas')
       .select('id')
-      .eq('numero', mesa_numero)
+      .eq('numero', mesaNumero)
       .single() as { data: any; error: any };
 
     const { data: orden, error: ordenErr } = await (supabase.from('ordenes') as any)
       .insert({
         mesa_id: mesaRow?.id,
-        mesa_numero,
-        tipo: tipo || 'mesa',
-        cliente_nombre: cliente_nombre || null,
+        mesa_numero: mesaNumero,
+        tipo: isLlevar ? 'llevar' : 'mesa',
+        cliente_nombre: clienteNombre,
+        notas: notas || null,
         estado: 'abierta',
       })
       .select()
       .single() as { data: any; error: any };
     if (ordenErr) throw ordenErr;
 
-    if (tipo === 'mesa') {
+    if (!isLlevar) {
       await (supabase.from('mesas') as any)
         .update({ estado: 'ocupada', orden_actual_id: orden.id })
-        .eq('numero', mesa_numero);
+        .eq('numero', mesaNumero);
     }
 
     for (const it of items) {
       const { data: prod } = await supabase
         .from('productos')
         .select('id, precio, nombre')
-        .eq('id', it.producto_id)
-        .single() as { data: any; error: any };
-      const precio = prod ? Number(prod.precio) : Number(it.precio_unitario);
-      const nombre = prod?.nombre || it.nombre_producto;
+        .eq('nombre', it.name)
+        .maybeSingle() as { data: any; error: any };
+      if (!prod) continue;
+      const precio = Number(prod.precio);
+      const cant = Number(it.quantity) || 1;
       await (supabase.from('orden_items') as any).insert({
         orden_id: orden.id,
-        producto_id: prod?.id || null,
-        nombre_producto: nombre,
+        producto_id: prod.id,
+        nombre_producto: prod.nombre,
         precio_unitario: precio,
-        cantidad: Number(it.cantidad) || 1,
-        subtotal: precio * (Number(it.cantidad) || 1),
-        notas: it.notas || null,
+        cantidad: cant,
+        subtotal: precio * cant,
+        notas: it.notes || it.notas || null,
       });
     }
 
     return jsonOk({ success: true, orden_nu: orden.id });
   } catch (err) {
     console.error('Error POST /api/admin/create-order:', err);
-    return jsonError('Error al crear orden', 500);
+    return jsonError('Error creando orden', 500);
   }
 }

@@ -10,7 +10,6 @@ export async function GET(request: NextRequest) {
       .from('ordenes')
       .select('id, mesa_numero, cliente_nombre, opened_at, estado, total, subtotal, descuento, tipo')
       .eq('estado', 'abierta')
-      .eq('tipo', 'mesa')
       .order('opened_at', { ascending: false });
     if (error) throw error;
 
@@ -21,6 +20,7 @@ export async function GET(request: NextRequest) {
       fecha: o.opened_at,
       estado: o.estado,
       total: Number(o.total || 0),
+      tipo: o.tipo || 'mesa',
     }));
 
     return jsonOk({ success: true, tables });

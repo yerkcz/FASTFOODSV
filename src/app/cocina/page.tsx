@@ -3,8 +3,8 @@
 import Link from 'next/link';
 import { useEffect, useState, useRef, useCallback } from "react";
 import Image from "next/image";
-import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
-const CHEF_ICON = "M12 3c-1.2 5.4-6 6-6 12h12c0-6-4.8-6.6-6-12zM6 17h12M10 21v-4M14 21v-4";
+import { formatTime, getTimeColor, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
+import { isColdDrink, isHotDrink, isKitchenFood } from "@/lib/kdsFilters";
 
 type OrderItem = {
   id: string;
@@ -24,7 +24,6 @@ type Order = {
   items: OrderItem[];
 };
 
-
 export default function KitchenDisplaySystem() {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,26 +31,14 @@ export default function KitchenDisplaySystem() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<"Proceso de comandas" | "Bebidas Frías" | "Bebidas Calientes">("Proceso de comandas");
   const [customOrder, setCustomOrder] = useState<string[]>([]);
-  
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-
-  useEffect(() => {
-    // Sonido desactivado a petición del usuario
-    // audioRef.current = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-  }, []);
 
   const fetchOrders = useCallback(async () => {
     try {
       const res = await fetch("/api/kitchen/orders");
       if (res.ok) {
         const data = await res.json();
-        const newTotalPendingItems = data.orders.reduce((acc: number, o: Order) => 
-            acc + o.items.filter(i => !i.listo).length, 0);
-
-        if (soundEnabled && newTotalPendingItems > lastOrdersCount && lastOrdersCount !== 0) {
-            // audioRef.current?.play().catch(console.error);
-        }
-        
+        const newTotalPendingItems = data.orders.reduce((acc: number, o: Order) =>
+          acc + o.items.filter(i => !i.listo).length, 0);
         setLastOrdersCount(newTotalPendingItems);
         setOrders(data.orders);
       }
@@ -60,7 +47,7 @@ export default function KitchenDisplaySystem() {
     } finally {
       setLoading(false);
     }
-  }, [lastOrdersCount, soundEnabled]);
+  }, [lastOrdersCount]);
 
   useEffect(() => {
     fetchOrders();
@@ -69,41 +56,36 @@ export default function KitchenDisplaySystem() {
   }, [fetchOrders]);
 
   const toggleItemReady = async (itemId: string) => {
-    // Optimistic update: remove item immediately
     setOrders(prev => prev.map(order => ({
       ...order,
       items: order.items.filter(item => item.id !== itemId)
     })).filter(order => order.items.length > 0));
-
     try {
-        await fetch("/api/kitchen/mark-ready", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ itemId })
-        });
-        setTimeout(fetchOrders, 500);
+      await fetch("/api/kitchen/mark-ready", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemId })
+      });
+      setTimeout(fetchOrders, 500);
     } catch (err) {
-        console.error(err);
-        fetchOrders();
+      console.error(err);
+      fetchOrders();
     }
   };
 
-  // Category matching for tabs (matching AppSheet Slices)
-  const categoryMatch = (catStr: string, tab: string) => {
-    if (tab === "Proceso de comandas") return catStr?.includes("Cocina") || catStr?.includes("Platos") || catStr?.includes("Acompaña") || catStr?.includes("Panadería") || catStr?.includes("Postres") || !catStr;
-    if (tab === "Bebidas Frías") return catStr?.includes("Frias") || catStr?.includes("Frías") || catStr?.includes("Alcoholica") || catStr?.includes("Cerveza");
-    if (tab === "Bebidas Calientes") return catStr?.includes("Calientes") || catStr?.includes("Café");
+  const categoryMatch = (catStr: string | null | undefined, tab: string) => {
+    if (tab === "Proceso de comandas") return isKitchenFood(catStr);
+    if (tab === "Bebidas Frías")        return isColdDrink(catStr);
+    if (tab === "Bebidas Calientes")    return isHotDrink(catStr);
     return true;
   };
 
-  // Filter all pending items for the active tab
-  const pendingItemsRaw = orders.flatMap(order => 
+  const pendingItemsRaw = orders.flatMap(order =>
     order.items
       .filter(item => !item.listo && categoryMatch(item.categoria, activeTab))
       .map(item => ({ ...item, orderCliente: order.cliente, ordenNu: order.orden_nu }))
   );
 
-  // Apply custom order if set
   const pendingItemsForTab = customOrder.length > 0
     ? [...pendingItemsRaw].sort((a, b) => {
         const idxA = customOrder.indexOf(a.id);
@@ -115,7 +97,6 @@ export default function KitchenDisplaySystem() {
       })
     : pendingItemsRaw;
 
-  // Reset custom order when tab changes
   const prevTabRef = useRef(activeTab);
   useEffect(() => {
     if (prevTabRef.current !== activeTab) {
@@ -136,77 +117,63 @@ export default function KitchenDisplaySystem() {
   const tabConfig = [
     { key: "Proceso de comandas" as const, label: "Comandas", icon: "🍳" },
     { key: "Bebidas Frías" as const, label: "Beb. Frías", icon: "🧊" },
-    { key: "Bebidas Calientes" as const, label: "Beb. Calientes", icon: "☕" },
+    { key: "Bebidas Calientes" as const, label: "Beb. Cal.", icon: "☕" },
   ];
 
   if (!soundEnabled) {
     return (
-      <div style={{ minHeight: "100vh", backgroundColor: "#f3f4f6", fontFamily: 'Roboto, sans-serif', display: 'flex', flexDirection: 'column' }}>
+      <div className="kds-root">
         <header className="kds-header">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente KDS" width={24} height={24} style={{ borderRadius: '50%' }} priority />
-            <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>KDS</span>
+          <div className="kds-header-left">
+            <Link href="/inicio" style={{ color: "white", display: "flex", padding: "6px", marginRight: "8px" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+              </svg>
+            </Link>
+            <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente KDS" width={26} height={26} className="kds-logo" priority />
+            <span className="kds-brand">KDS · Cocina</span>
           </div>
         </header>
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '16px' }}>
-          <div style={{ backgroundColor: 'white', padding: '28px', borderRadius: '12px', boxShadow: '0 4px 20px rgba(0,0,0,0.10)', textAlign: 'center', maxWidth: '340px', width: '100%' }}>
-            <div style={{ width: '56px', height: '56px', borderRadius: '50%', backgroundColor: '#e8f0fe', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#1a73e8" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8h1a4 4 0 0 1 0 8h-1"/><path d="M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8z"/><line x1="6" y1="1" x2="6" y2="4"/><line x1="10" y1="1" x2="10" y2="4"/><line x1="14" y1="1" x2="14" y2="4"/>
-              </svg>
-            </div>
-            <h2 style={{ fontSize: "1.1rem", color: "#202124", fontWeight: 700, marginBottom: '6px' }}>Monitor de Cocina</h2>
-            <p style={{ color: "#5f6368", fontSize: "0.85rem", marginBottom: "20px", lineHeight: '1.5' }}>
-              Toca para iniciar el tablero en tiempo real.
-            </p>
-            <button 
-              onClick={() => {
-                setSoundEnabled(true);
-              }}
-              style={{ 
-                padding: '12px 24px', fontSize: '0.9rem', 
-                background: 'linear-gradient(135deg, #1a73e8, #1557b0)',
-                color: 'white', border: 'none', borderRadius: '8px', 
-                cursor: 'pointer', fontWeight: 700, letterSpacing: '0.5px',
-                boxShadow: '0 4px 14px rgba(26,115,232,0.3)',
-                width: '100%'
-              }}
-            >
+        <div className="kds-splash">
+          <div className="kds-splash-card">
+            <div className="kds-splash-icon">👨‍🍳</div>
+            <h2 className="kds-splash-title">Monitor de Cocina</h2>
+            <p className="kds-splash-sub">Toca para iniciar el tablero en tiempo real.</p>
+            <button className="kds-splash-btn" onClick={() => setSoundEnabled(true)}>
               🚀 Iniciar Tablero
             </button>
           </div>
         </div>
-        <style dangerouslySetInnerHTML={{__html: KDS_STYLES}} />
+        <style dangerouslySetInnerHTML={{ __html: KDS_STYLES }} />
       </div>
     );
   }
 
   return (
-    <div style={{ minHeight: "100dvh", backgroundColor: "#f3f4f6", fontFamily: "Roboto, sans-serif", overflowY: 'auto', WebkitOverflowScrolling: 'touch' }}>
-      {/* TOP APP BAR — ultra-compact */}
+    <div className="kds-root">
       <header className="kds-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={22} height={22} style={{ borderRadius: '50%' }} priority />
-          <span style={{ fontSize: '0.8rem', fontWeight: 700 }}>KDS</span>
+        <div className="kds-header-left">
+          <Link href="/inicio" style={{ color: "white", display: "flex", padding: "6px", marginRight: "8px" }}>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+            </svg>
+          </Link>
+          <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={24} height={24} className="kds-logo" priority />
+          <span className="kds-brand">KDS · Cocina</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {loading && (
-            <div style={{ width: 6, height: 6, borderRadius: '50%', backgroundColor: '#fbbc04' }} />
-          )}
-          <div onClick={fetchOrders} style={{ cursor: 'pointer', padding: '4px', background: 'rgba(255,255,255,0.15)', borderRadius: '50%' }}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+        <div className="kds-header-right">
+          {loading && <div className="kds-dot-loading" />}
+          <button onClick={fetchOrders} className="kds-icon-btn" aria-label="Actualizar">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
             </svg>
-          </div>
-          <div style={{ fontSize: '0.65rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '10px', fontWeight: 600 }}>
-            {pendingItemsForTab.length}
-          </div>
+          </button>
+          <span className="kds-count-badge">{pendingItemsForTab.length}</span>
         </div>
       </header>
 
-      <div style={{ paddingTop: '32px', paddingBottom: '0px' }}>
-        
-        {/* CATEGORY TABS */}
+      <div className="kds-body">
+        {/* TABS */}
         <div className="kds-tabs">
           {tabConfig.map(tab => (
             <button
@@ -214,92 +181,101 @@ export default function KitchenDisplaySystem() {
               onClick={() => setActiveTab(tab.key)}
               className={`kds-tab${activeTab === tab.key ? ' kds-tab-active' : ''}`}
             >
-              <span style={{ marginRight: '4px' }}>{tab.icon}</span>{tab.label}
+              <span>{tab.icon}</span> {tab.label}
             </button>
           ))}
         </div>
 
-        {/* TABLE VIEW */}
-        <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-          
-          {/* Table Header */}
-          <div className="kds-table-header">
-            <div>LISTO</div>
+        {/* TABLE */}
+        <div className="kds-table-wrap">
+          <div className="kds-thead">
+            <div>✓</div>
             <div>CANT</div>
             <div>ARTÍCULO</div>
             <div className="kds-col-mesa">MESA</div>
-            <div style={{ textAlign: 'right' }}>HORA</div>
-            <div className="kds-col-reorder" style={{ textAlign: 'center' }}>⇅</div>
+            <div className="kds-col-time">HORA</div>
+            <div className="kds-col-reorder">⇅</div>
           </div>
 
           {pendingItemsForTab.length === 0 && !loading && (
-            <div style={{ textAlign: "center", padding: "32px 16px", color: "#80868b" }}>
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#dadce0" strokeWidth="1.5" style={{ marginBottom: '8px', display: 'block', margin: '0 auto 8px' }}>
-                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-              </svg>
-              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#202124' }}>¡Todo al día!</div>
-              <div style={{ fontSize: '0.7rem', marginTop: '2px' }}>Sin pendientes en {activeTab}.</div>
+            <div className="kds-empty">
+              <div className="kds-empty-icon">✅</div>
+              <div className="kds-empty-title">¡Todo al día!</div>
+              <div className="kds-empty-sub">Sin pendientes en {activeTab}.</div>
             </div>
           )}
 
-          {/* Table Rows */}
           {pendingItemsForTab.map((item, index) => {
             const elapsed = getElapsedMins(item.hora_registro);
             const timeColor = getTimeColor(item.hora_registro);
-            const rowBg = getTimeBg(item.hora_registro);
             const urgencyBadge = getUrgencyBadge(item.hora_registro);
             const isUrgent = elapsed >= 40;
+            const isOld = elapsed >= 25;
 
             return (
               <div
                 key={item.id}
-                className="kds-table-row"
-                style={{
-                  backgroundColor: rowBg !== 'transparent' ? rowBg : (index % 2 === 0 ? 'white' : '#fafafa'),
-                  borderLeft: isUrgent ? '4px solid #d93025' : elapsed >= 35 ? '4px solid #e37400' : '4px solid transparent',
-                }}
+                className={`kds-row${isUrgent ? ' kds-row-urgent' : isOld ? ' kds-row-old' : ''}`}
+                style={{ borderLeftColor: isUrgent ? '#ef4444' : isOld ? '#f59e0b' : 'transparent' }}
               >
                 {/* LISTO */}
-                <div onClick={() => toggleItemReady(item.id)} style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <div style={{ width: '16px', height: '16px', borderRadius: '50%', border: `2px solid ${isUrgent ? '#d93025' : '#dadce0'}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke={isUrgent ? '#d93025' : '#9aa0a6'} strokeWidth="3"><polyline points="20 6 9 17 4 12"/></svg>
+                <div
+                  className="kds-check"
+                  onClick={() => toggleItemReady(item.id)}
+                  role="button"
+                  aria-label="Marcar listo"
+                >
+                  <div className="kds-check-circle" style={{ borderColor: isUrgent ? '#ef4444' : undefined }}>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke={isUrgent ? '#ef4444' : 'currentColor'} strokeWidth="3.5">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
                   </div>
                 </div>
+
                 {/* CANT */}
-                <div style={{ fontSize: '0.65rem', fontWeight: 800, color: '#1a73e8' }}>{item.cantidad}×</div>
+                <div className="kds-qty">{item.cantidad}×</div>
 
                 {/* ARTÍCULO */}
-                <div style={{ overflow: 'hidden' }}>
-                  <div style={{ fontSize: '0.62rem', color: '#202124', fontWeight: 600, lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                <div className="kds-item-info">
+                  <div className="kds-item-name">
                     {item.articulo}
-                    {urgencyBadge && <span style={{ marginLeft: '2px', fontSize: '0.45rem', fontWeight: 800, background: isUrgent ? '#fce8e6' : '#fef3e2', color: timeColor, padding: '0 2px', borderRadius: '2px' }}>{urgencyBadge}</span>}
+                    {urgencyBadge && (
+                      <span className="kds-urgency-badge" style={{ color: timeColor }}>
+                        {urgencyBadge}
+                      </span>
+                    )}
                   </div>
-                  {item.notas && <div style={{ fontSize: '0.5rem', color: '#d93025', fontStyle: 'italic', lineHeight: 1.05, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.notas}</div>}
+                  {item.notas && (
+                    <div className="kds-item-notes">📝 {item.notas}</div>
+                  )}
                 </div>
 
                 {/* MESA */}
-                <div className="kds-col-mesa" style={{ fontSize: '0.55rem', color: '#5f6368', fontWeight: 500 }}>{item.mesa || item.orderCliente || '—'}</div>
-                {/* HORA */}
-                <div style={{ textAlign: 'right', lineHeight: 1.0 }}>
-                  <div style={{ fontSize: '0.55rem', color: timeColor, fontWeight: 800 }}>{formatTime(item.hora_registro)}</div>
-                  <div style={{ fontSize: '0.45rem', color: timeColor, fontWeight: 600 }}>{elapsed}m</div>
+                <div className="kds-col-mesa kds-mesa-text">
+                  {item.mesa || item.orderCliente || '—'}
                 </div>
 
-                {/* REORDER ARROWS */}
-                <div className="kds-col-reorder" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0px' }}>
+                {/* HORA */}
+                <div className="kds-col-time kds-time-block">
+                  <div style={{ color: timeColor }}>{formatTime(item.hora_registro)}</div>
+                  <div className="kds-elapsed" style={{ color: timeColor }}>{elapsed}m</div>
+                </div>
+
+                {/* REORDER */}
+                <div className="kds-col-reorder kds-reorder-wrap">
                   {pendingItemsForTab.length > 1 && (
                     <>
                       <button
-                        onClick={(e) => { e.stopPropagation(); moveItem(index, 'up'); }}
+                        onClick={e => { e.stopPropagation(); moveItem(index, 'up'); }}
                         disabled={index === 0}
+                        className="kds-reorder-btn"
                         aria-label="Mover arriba"
-                        className="reorder-btn"
                       >▲</button>
                       <button
-                        onClick={(e) => { e.stopPropagation(); moveItem(index, 'down'); }}
+                        onClick={e => { e.stopPropagation(); moveItem(index, 'down'); }}
                         disabled={index === pendingItemsForTab.length - 1}
+                        className="kds-reorder-btn"
                         aria-label="Mover abajo"
-                        className="reorder-btn"
                       >▼</button>
                     </>
                   )}
@@ -307,151 +283,261 @@ export default function KitchenDisplaySystem() {
               </div>
             );
           })}
-
         </div>
       </div>
 
-      <style dangerouslySetInnerHTML={{__html: KDS_STYLES}} />
+      <style dangerouslySetInnerHTML={{ __html: KDS_STYLES }} />
     </div>
   );
 }
 
-// CSS in JS for KDS — using real CSS classes for robust media queries
 const KDS_STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap');
-  body { margin: 0; background-color: #f3f4f6; }
-
-  /* Header — ultra-compact */
-  .kds-header {
-    position: fixed; top: 0; left: 0; right: 0; height: 32px;
-    background: linear-gradient(135deg, #1a73e8 0%, #1557b0 100%);
-    color: white; display: flex; align-items: center; justify-content: space-between;
-    padding: 0 8px;
-    box-shadow: 0 1px 4px rgba(26,115,232,0.3);
-    z-index: 1000;
-    font-family: Roboto, sans-serif;
+  .kds-root {
+    min-height: 100dvh;
+    background-color: var(--background);
+    color: var(--text-primary);
+    font-family: 'Roboto', -apple-system, sans-serif;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
   }
 
-  /* Tabs — minimal */
+  /* ── HEADER ── */
+  .kds-header {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    height: 48px;
+    background: var(--primary-gradient);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+    flex-shrink: 0;
+  }
+  .kds-header-left { display: flex; align-items: center; gap: 8px; }
+  .kds-header-right { display: flex; align-items: center; gap: 8px; }
+  .kds-logo { border-radius: 50%; flex-shrink: 0; }
+  .kds-brand { font-size: 1rem; font-weight: 700; color: white; letter-spacing: 0.3px; }
+  .kds-dot-loading {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #fbbf24; animation: kdsPulse 1s infinite;
+  }
+  @keyframes kdsPulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+  .kds-icon-btn {
+    background: rgba(255,255,255,0.18); border: none; border-radius: 50%;
+    color: white; cursor: pointer; width: 32px; height: 32px; min-height: auto;
+    display: flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .kds-icon-btn:active { background: rgba(255,255,255,0.3); }
+  .kds-count-badge {
+    background: rgba(255,255,255,0.22); color: white;
+    font-size: 0.85rem; font-weight: 700;
+    padding: 3px 10px; border-radius: 12px;
+  }
+
+  /* ── SPLASH ── */
+  .kds-splash {
+    flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .kds-splash-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+    border-radius: 16px; padding: 32px 24px;
+    max-width: 340px; width: 100%; text-align: center;
+    box-shadow: var(--card-shadow);
+  }
+  .kds-splash-icon { font-size: 3rem; margin-bottom: 14px; }
+  .kds-splash-title { font-size: 1.15rem; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; }
+  .kds-splash-sub { font-size: 0.88rem; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.5; }
+  .kds-splash-btn {
+    background: var(--primary-gradient); color: white; border: none;
+    border-radius: 10px; padding: 13px 24px; font-size: 0.95rem;
+    font-weight: 700; cursor: pointer; width: 100%;
+    box-shadow: 0 4px 14px rgba(16,185,129,0.3);
+    transition: opacity 0.15s;
+  }
+  .kds-splash-btn:active { opacity: 0.85; }
+
+  /* ── BODY / TABS ── */
+  .kds-body { flex: 1; display: flex; flex-direction: column; }
+
   .kds-tabs {
-    display: flex; overflow-x: auto;
-    background: white; border-bottom: 1px solid #e0e0e0;
-    position: sticky; top: 32px; z-index: 900;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    display: flex; background: var(--card-bg);
+    border-bottom: 1px solid var(--surface-border);
+    position: sticky; top: 48px; z-index: 90;
+    overflow-x: auto; scrollbar-width: none;
   }
   .kds-tabs::-webkit-scrollbar { display: none; }
 
   .kds-tab {
-    flex: 1; min-width: 60px; padding: 4px 4px;
-    font-size: 0.62rem; font-weight: 500;
-    border: none; white-space: nowrap; cursor: pointer;
-    border-bottom: 2px solid transparent;
-    background: white; color: #5f6368;
-    transition: all 0.1s;
-    text-transform: uppercase; letter-spacing: 0.2px;
-    font-family: Roboto, sans-serif;
-    min-height: auto;
+    flex: 1; min-width: 80px; padding: 10px 8px;
+    font-size: 0.85rem; font-weight: 600;
+    border: none; border-bottom: 3px solid transparent;
+    background: transparent; color: var(--text-secondary);
+    cursor: pointer; white-space: nowrap;
+    transition: all 0.15s; min-height: auto;
+    letter-spacing: 0.2px; display: flex; align-items: center; justify-content: center; gap: 6px;
   }
-  .kds-tab:active { background: #f8f9fa; }
+  .kds-tab:active { background: var(--surface); }
   .kds-tab-active {
-    border-bottom-color: #1a73e8 !important;
-    color: #1a73e8 !important;
+    color: var(--primary) !important;
+    border-bottom-color: var(--primary) !important;
     font-weight: 700 !important;
-    background: #f0f6ff !important;
+    background: var(--primary-surface) !important;
   }
 
-  /* ===== TABLE — 6 columns, ultra-dense spreadsheet ===== */
+  /* ── TABLE ── */
+  .kds-table-wrap { flex: 1; }
 
-  .kds-table-row {
+  .kds-thead, .kds-row {
     display: grid;
-    grid-template-columns: 24px 28px 1fr 60px 44px 22px;
-    padding: 0px 6px;
+    grid-template-columns: 36px 44px 1fr 80px 60px 32px;
     align-items: center;
-    border-bottom: 1px solid #f1f3f4;
+    padding: 0 10px;
+    gap: 6px;
+  }
+
+  .kds-thead {
+    position: sticky; top: 87px; z-index: 80;
+    background: var(--surface);
+    border-bottom: 1px solid var(--surface-border);
+    padding: 6px 10px;
+    font-size: 0.75rem; font-weight: 700;
+    color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;
+    min-height: 26px;
+  }
+
+  .kds-row {
+    border-bottom: 1px solid var(--surface-border);
+    border-left: 4px solid transparent;
+    min-height: 32px;
     transition: background 0.1s;
-    font-family: Roboto, sans-serif;
-    min-height: 20px;
+    background: var(--background);
   }
-  .kds-table-row:active { background: #f0f6ff !important; }
+  .kds-row:nth-child(even) { background: var(--surface); }
+  .kds-row:active { background: var(--primary-surface) !important; }
+  .kds-row-urgent { background: rgba(239,68,68,0.08) !important; }
+  .kds-row-old { background: rgba(245,158,11,0.07) !important; }
 
-  .kds-table-header {
-    display: grid;
-    grid-template-columns: 24px 28px 1fr 60px 44px 22px;
-    padding: 1px 6px;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e0e0e0;
-    font-size: 0.48rem; color: #5f6368;
-    font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
-    position: sticky; top: 56px; z-index: 800;
-    font-family: Roboto, sans-serif;
-    min-height: 16px;
-  }
-
-  /* Reorder buttons — tiny */
-  .reorder-btn {
-    width: 18px; height: 12px; border: none; border-radius: 2px;
-    background-color: #e8f0fe;
-    color: #1a73e8;
-    cursor: pointer;
+  /* ── CELL ELEMENTS ── */
+  .kds-check { display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .kds-check-circle {
+    width: 22px; height: 22px; border-radius: 50%;
+    border: 2px solid var(--surface-border);
     display: flex; align-items: center; justify-content: center;
-    font-size: 0.45rem; font-weight: 800; padding: 0;
-    touch-action: manipulation;
-    transition: all 0.1s;
-    min-height: auto;
+    color: var(--text-muted);
+    transition: all 0.15s;
   }
-  .reorder-btn:hover { background: #d2e3fc; }
-  .reorder-btn:active { background: #1a73e8; color: white; }
-  .reorder-btn:disabled {
-    background: #f1f3f4;
-    color: #bdc1c6;
-    cursor: default;
+  .kds-check:active .kds-check-circle { background: var(--primary); border-color: var(--primary); color: white; }
+
+  .kds-qty { font-size: 0.78rem; font-weight: 800; color: var(--primary); }
+
+  .kds-item-info { overflow: hidden; }
+  .kds-item-name {
+    font-size: 0.78rem; font-weight: 700;
+    color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.1;
+  }
+  .kds-item-notes {
+    font-size: 0.66rem; color: #ef4444;
+    font-style: italic; line-height: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .kds-urgency-badge {
+    margin-left: 4px; font-size: 0.54rem; font-weight: 800;
+    padding: 1px 3px; border-radius: 3px;
+    background: rgba(239,68,68,0.15);
   }
 
-  /* ========== MOBILE / Small Tablet vertical (≤600px) ========== */
+  .kds-mesa-text { font-size: 0.68rem; color: var(--text-secondary); font-weight: 600; }
+
+  .kds-time-block { text-align: right; line-height: 1; }
+  .kds-time-block > div:first-child { font-size: 0.68rem; font-weight: 800; }
+  .kds-elapsed { font-size: 0.6rem; font-weight: 600; }
+
+  .kds-reorder-wrap { display: flex; flex-direction: column; align-items: center; gap: 1px; }
+  .kds-reorder-btn {
+    width: 20px; height: 12px; border: none; border-radius: 3px;
+    background: var(--surface); color: var(--primary);
+    cursor: pointer; font-size: 0.5rem; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0; min-height: auto; transition: all 0.1s;
+  }
+  .kds-reorder-btn:hover { background: var(--primary-surface); }
+  .kds-reorder-btn:active { background: var(--primary); color: white; }
+  .kds-reorder-btn:disabled { opacity: 0.3; cursor: default; }
+
+  /* ── HIDE cols on mobile ── */
+  .kds-col-mesa { display: none !important; }
+  .kds-col-time { }
+  .kds-col-reorder { }
+
   @media (max-width: 600px) {
-    .kds-header { height: 32px; }
-    .kds-tabs { top: 32px; }
-    .kds-table-header { top: 56px; }
-
-    .kds-tab {
-      min-width: 48px;
-      padding: 3px 3px;
-      font-size: 0.58rem;
+    .kds-thead, .kds-row {
+      grid-template-columns: 28px 34px 1fr 48px 22px;
+      min-height: 32px;
+      padding: 3px 6px;
     }
-    .kds-table-header,
-    .kds-table-row {
-      grid-template-columns: 22px 24px 1fr 38px 20px;
-      padding: 0px 3px;
-    }
-    .kds-col-mesa {
-      display: none !important;
-    }
-    .kds-table-row { min-height: 22px; }
+    .kds-col-mesa { display: none !important; }
+    .kds-item-name { font-size: 0.76rem; }
+    .kds-qty { font-size: 0.76rem; }
+    .kds-check-circle { width: 20px; height: 20px; }
   }
 
-  /* ========== Medium Tablet vertical (601-900px) ========== */
+  @media (min-width: 481px) {
+    .kds-col-mesa { display: block !important; }
+    .kds-thead, .kds-row {
+      grid-template-columns: 36px 44px 1fr 80px 60px 32px;
+    }
+  }
+
+  /* ── TABLET (601-900px) — ultra compacto ── */
   @media (min-width: 601px) and (max-width: 900px) {
-    .kds-table-header,
-    .kds-table-row {
-      grid-template-columns: 24px 28px 1fr 56px 44px 22px;
+    .kds-header { height: 40px; }
+    .kds-brand { font-size: 0.9rem; }
+    .kds-tabs { top: 40px; }
+    .kds-tab { font-size: 0.8rem; padding: 7px 6px; }
+    .kds-thead { top: 75px; font-size: 0.66rem; padding: 4px 10px; min-height: 22px; }
+    .kds-thead, .kds-row {
+      grid-template-columns: 32px 40px 1fr 76px 54px 28px;
+      padding: 4px 10px;
+      gap: 6px;
+      min-height: 38px;
     }
+    .kds-check-circle { width: 24px; height: 24px; }
+    .kds-qty { font-size: 0.84rem; }
+    .kds-item-name { font-size: 0.83rem; }
+    .kds-item-notes { font-size: 0.7rem; }
+    .kds-mesa-text { font-size: 0.72rem; }
+    .kds-time-block > div:first-child { font-size: 0.72rem; }
+    .kds-elapsed { font-size: 0.62rem; }
+    .kds-reorder-btn { width: 22px; height: 13px; font-size: 0.55rem; }
   }
 
-  /* ========== Large Desktop / PC monitor (≥901px) ========== */
   @media (min-width: 901px) {
-    .kds-table-header,
-    .kds-table-row {
-      grid-template-columns: 28px 32px 1fr 72px 50px 24px;
-      min-height: 22px;
+    .kds-thead, .kds-row {
+      grid-template-columns: 36px 44px 1fr 86px 60px 30px;
+      min-height: 42px;
+      padding: 4px 10px;
     }
-    .kds-table-header { min-height: 18px; }
+    .kds-thead { padding: 5px 10px; }
+    .kds-check-circle { width: 26px; height: 26px; }
+    .kds-item-name { font-size: 0.88rem; }
+    .kds-qty { font-size: 0.88rem; }
+    .kds-mesa-text { font-size: 0.76rem; }
+    .kds-time-block > div:first-child { font-size: 0.76rem; }
   }
 
-  /* Ensure full scroll on cocina body */
-  html, body {
-    overflow-y: auto !important;
-    height: auto !important;
-    -webkit-overflow-scrolling: touch;
+  /* ── EMPTY ── */
+  .kds-empty {
+    text-align: center; padding: 48px 16px;
   }
+  .kds-empty-icon { font-size: 2.5rem; margin-bottom: 8px; }
+  .kds-empty-title { font-size: 1.1rem; font-weight: 700; color: var(--text-primary); margin-bottom: 4px; }
+  .kds-empty-sub { font-size: 0.88rem; color: var(--text-muted); }
+
+  html, body { overflow-y: auto !important; height: auto !important; }
 `;

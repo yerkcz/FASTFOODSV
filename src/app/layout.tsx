@@ -32,8 +32,23 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
+    <html lang="es" suppressHydrationWarning>
       <head>
+        {/* Dark mode initialization — runs before paint to avoid flash */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                try {
+                  var t = localStorage.getItem('ffsv_theme');
+                  document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
+                } catch(e) {
+                  document.documentElement.setAttribute('data-theme', 'dark');
+                }
+              })();
+            `
+          }}
+        />
         {/* Roboto for all POS/Staff pages — loaded once globally */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

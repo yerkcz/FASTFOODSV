@@ -1,0 +1,173 @@
+.adminContainer {
+  min-height: 100vh;
+  background-color: var(--background);
+  font-family: 'Roboto', sans-serif;
+}
+
+.loginContainer {
+  min-height: 100vh;
+  background-color: var(--background);
+  font-family: 'Roboto', sans-serif;
+}
+
+.headerBar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: var(--header-bg);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+  z-index: 1000;
+  font-family: 'Roboto', sans-serif;
+}
+
+.checkoutModal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--background);
+  z-index: 2000;
+  display: flex;
+  flex-direction: column;
+  font-family: 'Roboto', sans-serif;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.checkoutHeader {
+  height: 60px;
+  background: var(--card-bg);
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 0 16px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.splitFooter {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--card-bg);
+  border-top: 1px solid var(--surface-border);
+  padding: 14px 16px;
+  padding-bottom: max(14px, env(safe-area-inset-bottom));
+  box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+  z-index: 2001;
+  max-height: 55dvh;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.tabBar {
+  display: flex;
+  gap: 0;
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  margin-bottom: 20px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.tabButton {
+  flex: 1;
+  padding: 14px 8px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border: none;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: all 0.2s;
+}
+
+.tabActive {
+  border-bottom: 3px solid var(--primary);
+  background-color: var(--primary-light);
+  color: var(--primary);
+}
+
+.tabInactive {
+  border-bottom: 3px solid transparent;
+  background-color: var(--card-bg);
+  color: var(--text-secondary);
+}
+
+.mesaCard {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  transition: transform 0.1s;
+  border: 1px solid var(--card-border);
+}
+
+.mesaCardFooter {
+  border-top: 1px solid var(--surface-border);
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  background-color: var(--card-bg);
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.summaryCard {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 24px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.itemsTable {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+  overflow: hidden;
+}
+
+.itemsHeader {
+  padding: 12px 16px;
+  background: var(--primary-gradient-soft);
+  color: var(--primary);
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--surface-border);
+}
+
+.paymentBtnActive {
+  background-color: var(--primary-surface);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.paymentBtnInactive {
+  background-color: var(--surface);
+  color: var(--text-secondary);
+  border-color: var(--surface-border);
+}
+
+@media (max-width: 480px) {
+  .headerBar {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    padding: 12px 16px !important;
+    gap: 12px !important;
+  }
+}

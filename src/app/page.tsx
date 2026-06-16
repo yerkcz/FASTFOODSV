@@ -791,16 +791,16 @@ export default function POSPage() {
             // WAITER MODE VIEW: Simple List, Search Driven
             <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {search.trim() === "" ? (
-                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#8fa898' }}>
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-muted)' }}>
                   <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: '16px', opacity: 0.5 }}>
                     <circle cx="11" cy="11" r="8"></circle>
                     <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                   </svg>
-                  <p style={{ fontSize: '1.1rem', fontWeight: 500, color: '#2d5a3f' }}>Buscador Activo</p>
+                  <p style={{ fontSize: '1.1rem', fontWeight: 500, color: 'var(--primary)' }}>Buscador Activo</p>
                   <p style={{ fontSize: '0.9rem' }}>Escriba el nombre del artículo para agregarlo a la comanda.</p>
                 </div>
               ) : filtered.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '20px', color: '#d93025' }}>No hay coincidencias.</div>
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--danger)' }}>No hay coincidencias.</div>
               ) : (
                 filtered.map((product) => (
                   <div 
@@ -812,15 +812,15 @@ export default function POSPage() {
                     }}
                     style={{ 
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
-                        padding: '16px', background: 'white', border: '1px solid #dce8e0', 
-                        borderRadius: '12px', cursor: 'pointer', boxShadow: '0 2px 4px rgba(0,0,0,0.02)'
+                        padding: '16px', background: 'var(--card-bg)', border: '1.5px solid var(--card-border)', 
+                        borderRadius: '12px', cursor: 'pointer', boxShadow: 'var(--card-shadow)'
                     }}
                   >
                     <div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#1a2e23' }}>{product.name}</div>
-                      <div style={{ fontSize: '0.8rem', color: '#8fa898', marginTop: '2px' }}>{product.category}</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 700, color: 'var(--text-primary)' }}>{product.name}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{product.category}</div>
                     </div>
-                    <div style={{ fontSize: '1rem', fontWeight: 600, color: '#2d5a3f' }}>
+                    <div style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--primary)' }}>
                       {formatColones(product.price)}
                     </div>
                   </div>
@@ -1150,46 +1150,46 @@ export default function POSPage() {
       {/* ===== WAITER ADD ITEM MODAL ===== */}
       {waiterModal && (
         <div className="modal-overlay" onClick={() => setWaiterModal(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ padding: '24px' }}>
-            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', color: '#1a2e23' }}>{waiterModal.name}</h3>
-            <p style={{ margin: '0 0 20px 0', color: '#2d5a3f', fontWeight: 600 }}>{formatColones(waiterModal.price)}</p>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ padding: '24px', background: 'var(--card-bg)', borderColor: 'var(--card-border)' }}>
+            <h3 style={{ margin: '0 0 8px 0', fontSize: '1.2rem', color: 'var(--text-primary)' }}>{waiterModal.name}</h3>
+            <p style={{ margin: '0 0 20px 0', color: 'var(--primary)', fontWeight: 600 }}>{formatColones(waiterModal.price)}</p>
             
             <div style={{ marginBottom: '20px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: '#5f6368', textTransform: 'uppercase', fontWeight: 700 }}>Cantidad</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: '#f7faf8', padding: '8px', borderRadius: '12px', border: '1px solid #dce8e0', width: 'fit-content' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Cantidad</label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--surface)', padding: '8px', borderRadius: '12px', border: '1px solid var(--surface-border)', width: 'fit-content' }}>
                 <button 
                   onClick={() => setWaiterQty(Math.max(1, waiterQty - 1))}
                   aria-label="Disminuir cantidad"
-                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
+                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'var(--card-bg)', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '1.2rem', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
                 >−</button>
-                <span style={{ fontSize: '1.2rem', fontWeight: 800, minWidth: '24px', textAlign: 'center' }}>{waiterQty}</span>
+                <span style={{ fontSize: '1.2rem', fontWeight: 800, minWidth: '24px', textAlign: 'center', color: 'var(--text-primary)' }}>{waiterQty}</span>
                 <button 
                   onClick={() => setWaiterQty(waiterQty + 1)}
-                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'white', boxShadow: '0 2px 4px rgba(0,0,0,0.05)', fontSize: '1.2rem', color: '#2d5a3f', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
+                  style={{ width: '44px', height: '44px', borderRadius: '8px', border: 'none', background: 'var(--card-bg)', boxShadow: '0 2px 4px rgba(0,0,0,0.1)', fontSize: '1.2rem', color: 'var(--primary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', touchAction: 'manipulation' }}
                 >+</button>
               </div>
             </div>
 
             <div style={{ marginBottom: '24px' }}>
-              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: '#5f6368', textTransform: 'uppercase', fontWeight: 700 }}>Notas (opcional)</label>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)', textTransform: 'uppercase', fontWeight: 700 }}>Notas (opcional)</label>
               <input 
                 type="text" 
                 placeholder="Ej. Sin cebolla, extra salsa..."
                 value={waiterNota}
                 onChange={e => setWaiterNota(e.target.value)}
                 autoComplete="off"
-                style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #dce8e0', fontSize: '1rem', background: '#f7faf8', boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '1rem', background: 'var(--surface)', color: 'var(--text-primary)', boxSizing: 'border-box' }}
               />
             </div>
 
             <div style={{ display: 'flex', gap: '12px' }}>
               <button 
                 onClick={() => setWaiterModal(null)} 
-                style={{ flex: 1, padding: '14px', background: 'white', border: '1px solid #dce8e0', borderRadius: '8px', fontWeight: 700, color: '#5f6368', cursor: 'pointer' }}
+                style={{ flex: 1, padding: '14px', background: 'var(--card-bg)', border: '1px solid var(--surface-border)', borderRadius: '8px', fontWeight: 700, color: 'var(--text-secondary)', cursor: 'pointer' }}
               >Cancelar</button>
               <button 
                 onClick={handleWaiterAdd} 
-                style={{ flex: 2, padding: '14px', background: '#25d366', border: 'none', borderRadius: '8px', fontWeight: 700, color: 'white', cursor: 'pointer', boxShadow: '0 4px 12px rgba(37, 211, 102, 0.3)' }}
+                style={{ flex: 2, padding: '14px', background: 'var(--primary)', border: 'none', borderRadius: '8px', fontWeight: 700, color: 'white', cursor: 'pointer', boxShadow: '0 4px 12px rgba(16, 185, 129, 0.3)' }}
               >Agregar Artículo →</button>
             </div>
           </div>

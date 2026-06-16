@@ -1,10 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase } from '@/lib/supabase/server-api';
+import { getServerSupabase, jsonError, isValidAdminKey } from '@/lib/supabase/server-api';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
+
     const supabase = getServerSupabase();
     const { data, error } = await supabase
       .from('ordenes')

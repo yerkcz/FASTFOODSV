@@ -17,12 +17,77 @@ function applyTheme(theme: Theme) {
   }
 }
 
+// ── Iconos SVG line-style (Feather/Lucide) ──────────────────
+function IconEdit() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+    </svg>
+  );
+}
+function IconTable() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="7" height="7" rx="1"/>
+      <rect x="14" y="3" width="7" height="7" rx="1"/>
+      <rect x="3" y="14" width="7" height="7" rx="1"/>
+      <rect x="14" y="14" width="7" height="7" rx="1"/>
+    </svg>
+  );
+}
+function IconKitchen() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>
+    </svg>
+  );
+}
+function IconCold() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="2" y1="12" x2="22" y2="12"/>
+      <line x1="12" y1="2" x2="12" y2="22"/>
+      <path d="m20 16-4-4 4-4"/><path d="m4 8 4 4-4 4"/>
+      <path d="m16 4-4 4-4-4"/><path d="m8 20 4-4 4 4"/>
+    </svg>
+  );
+}
+function IconHot() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17 8h1a4 4 0 0 1 0 8h-1"/>
+      <path d="M3 8h14v9a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4Z"/>
+      <line x1="6" y1="2" x2="6" y2="4"/>
+      <line x1="10" y1="2" x2="10" y2="4"/>
+      <line x1="14" y1="2" x2="14" y2="4"/>
+    </svg>
+  );
+}
+function IconDelivered() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+      <polyline points="22 4 12 14.01 9 11.01"/>
+    </svg>
+  );
+}
+function IconAdmin() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="20" x2="12" y2="10"/>
+      <line x1="18" y1="20" x2="18" y2="4"/>
+      <line x1="6" y1="20" x2="6" y2="16"/>
+      <line x1="3" y1="20" x2="21" y2="20"/>
+    </svg>
+  );
+}
+
 export default function InicioPortal() {
-  const [theme, setTheme] = useState<Theme>("light");
+  const [theme, setTheme] = useState<Theme>("dark");
 
   useEffect(() => {
     const stored = (typeof window !== "undefined" ? localStorage.getItem(STORAGE_THEME) : null) as Theme | null;
-    const initial: Theme = stored === "dark" ? "dark" : "light";
+    const initial: Theme = stored === "light" ? "light" : "dark";
     setTheme(initial);
     applyTheme(initial);
   }, []);
@@ -35,28 +100,38 @@ export default function InicioPortal() {
   };
 
   const navButtons = [
-    { href: "/mesas", label: "Mesas", desc: "Ver cuentas y Para Llevar", icon: "🍽️", color: "#047857", bg: "#d1fae5" },
-    { href: "/nueva-comanda", label: "Nueva Comanda", desc: "Tomar pedido", icon: "📝", color: "#d97706", bg: "#fed7aa" },
-    { href: "/cocina", label: "Monitor Cocina", desc: "KDS Comida", icon: "👨‍🍳", color: "#dc2626", bg: "#fecaca" },
-    { href: "/bebidas-frias", label: "Bebidas Frías", desc: "KDS Bebidas Frías", icon: "🧊", color: "#0ea5e9", bg: "#bae6fd" },
-    { href: "/bebidas-calientes", label: "Beb. Calientes", desc: "KDS Bebidas Calientes", icon: "☕", color: "#c2410c", bg: "#fed7aa" },
-    { href: "/entregados", label: "Entregados", desc: "Historial del día", icon: "✅", color: "#16a34a", bg: "#bbf7d0" },
-    { href: "/admin", label: "Admin / Facturación", desc: "Cobrar y reportes (PIN 0000)", icon: "📊", color: "#1e3a8a", bg: "#c7d2fe" },
+    { href: "/nueva-comanda",    label: "Nueva Comanda",       desc: "Tomar nuevo pedido",            Icon: IconEdit,      tone: "amber"   as const },
+    { href: "/mesas",            label: "Mesas",                desc: "Ver estado · Tocar mesa ocupada", Icon: IconTable,   tone: "green"   as const },
+    { href: "/cocina",           label: "Monitor Cocina",       desc: "KDS Comida",                    Icon: IconKitchen,   tone: "red"     as const },
+    { href: "/bebidas-frias",    label: "Bebidas Frías",        desc: "KDS Bebidas Frías",             Icon: IconCold,      tone: "blue"    as const },
+    { href: "/bebidas-calientes",label: "Beb. Calientes",       desc: "KDS Bebidas Calientes",         Icon: IconHot,       tone: "orange"  as const },
+    { href: "/entregados",       label: "Entregados",            desc: "Historial del día",             Icon: IconDelivered, tone: "teal"    as const },
+    { href: "/admin",            label: "Admin / Facturación",   desc: "Cobrar y reportes (PIN 0000)",  Icon: IconAdmin,     tone: "indigo"  as const },
   ];
+
+  const toneStyles: Record<string, { bg: string; color: string }> = {
+    amber:  { bg: "rgba(217, 119, 6, 0.14)",  color: "#f59e0b" },
+    green:  { bg: "rgba(4, 120, 87, 0.16)",   color: "#10b981" },
+    red:    { bg: "rgba(220, 38, 38, 0.14)",  color: "#ef4444" },
+    blue:   { bg: "rgba(14, 165, 233, 0.14)", color: "#38bdf8" },
+    orange: { bg: "rgba(194, 65, 12, 0.14)",  color: "#fb923c" },
+    teal:   { bg: "rgba(20, 184, 166, 0.14)", color: "#2dd4bf" },
+    indigo: { bg: "rgba(67, 56, 202, 0.16)",  color: "#818cf8" },
+  };
 
   return (
     <div style={{ minHeight: "100vh", background: "var(--background)", color: "var(--text-primary)", fontFamily: "Roboto, sans-serif" }}>
       <header style={{
         position: "fixed", top: 0, left: 0, right: 0, height: "60px",
-        background: "var(--primary-gradient)",
+        background: "linear-gradient(135deg, #064e3b 0%, #022c22 100%)",
         color: "white", display: "flex", alignItems: "center", justifyContent: "space-between",
-        padding: "0 16px", boxShadow: "0 2px 8px var(--primary-glow)", zIndex: 1000
+        padding: "0 16px", boxShadow: "0 1px 4px rgba(0, 0, 0, 0.35)", zIndex: 1000,
+        borderBottom: "1px solid rgba(255, 255, 255, 0.04)"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={36} height={36} style={{ borderRadius: "50%" }} priority />
-          <div>
-            <div style={{ fontSize: "1.05rem", fontWeight: 700 }}>Fast Food San Vicente</div>
-            <div style={{ fontSize: "0.7rem", opacity: 0.85 }}>POS · Régimen Simplificado</div>
+          <div style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "0.2px" }}>
+            Fast Food San Vicente
           </div>
         </div>
         <button
@@ -88,41 +163,40 @@ export default function InicioPortal() {
         <div style={{
           display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: "12px"
         }}>
-          {navButtons.map((b) => (
-            <Link
-              key={b.href}
-              href={b.href}
-              style={{
-                background: "var(--card-bg)",
-                border: "1px solid var(--card-border)",
-                borderRadius: "12px",
-                padding: "20px 16px",
-                textAlign: "left",
-                display: "flex", alignItems: "center", gap: "14px",
-                transition: "all 0.15s",
-                boxShadow: "var(--card-shadow)",
-                textDecoration: "none",
-                color: "var(--text-primary)"
-              }}
-            >
-              <div style={{
-                width: "48px", height: "48px", borderRadius: "12px",
-                background: b.bg, display: "flex",
-                alignItems: "center", justifyContent: "center",
-                fontSize: "1.6rem", flexShrink: 0
-              }}>
-                {b.icon}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>{b.label}</div>
-                <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{b.desc}</div>
-              </div>
-            </Link>
-          ))}
-        </div>
-
-        <div style={{ marginTop: "24px", padding: "12px 14px", background: "var(--surface)", border: "1px solid var(--surface-border)", borderRadius: "10px", fontSize: "0.75rem", color: "var(--text-secondary)" }}>
-          <strong style={{ color: "var(--text-primary)" }}>Reglas de negocio:</strong> Precio YA incluye IVA · No se cobra servicio 10% · Comprobante interno · 6 mesas fijas (1-6) + Para Llevar (mesa 99)
+          {navButtons.map((b) => {
+            const tone = toneStyles[b.tone];
+            return (
+              <Link
+                key={b.href}
+                href={b.href}
+                style={{
+                  background: "var(--card-bg)",
+                  border: "1px solid var(--card-border)",
+                  borderRadius: "12px",
+                  padding: "18px 16px",
+                  textAlign: "left",
+                  display: "flex", alignItems: "center", gap: "14px",
+                  transition: "all 0.15s",
+                  boxShadow: "var(--card-shadow)",
+                  textDecoration: "none",
+                  color: "var(--text-primary)"
+                }}
+              >
+                <div style={{
+                  width: "44px", height: "44px", borderRadius: "10px",
+                  background: tone.bg, color: tone.color,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  flexShrink: 0
+                }}>
+                  <b.Icon />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: "0.95rem", fontWeight: 700, color: "var(--text-primary)" }}>{b.label}</div>
+                  <div style={{ fontSize: "0.75rem", color: "var(--text-secondary)" }}>{b.desc}</div>
+                </div>
+              </Link>
+            );
+          })}
         </div>
       </div>
     </div>

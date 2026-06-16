@@ -71,12 +71,14 @@ export function getTimeColor(hora: string | null | undefined): string {
 
 /**
  * Background color for row highlight when urgent.
+ * Uses semi-transparent tints so it works on both light and dark themes
+ * without washing out text (project enforces permanent dark mode).
  */
 export function getTimeBg(hora: string | null | undefined): string {
   const mins = getElapsedMins(hora);
-  if (mins >= 40) return "#fce8e6";
-  if (mins >= 35) return "#fef3e2";
-  if (mins >= 30) return "#fef9e7";
+  if (mins >= 40) return "rgba(217, 48, 37, 0.18)";
+  if (mins >= 35) return "rgba(227, 116, 0, 0.18)";
+  if (mins >= 30) return "rgba(249, 171, 0, 0.15)";
   return "transparent";
 }
 

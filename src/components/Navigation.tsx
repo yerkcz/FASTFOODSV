@@ -22,8 +22,8 @@ export default function Navigation() {
       {/* Spacer so content isn't hidden behind the fixed navbar */}
       <div style={{ paddingBottom: '70px' }} />
       <nav className={styles.navbar}>
-        <Link 
-          href="/nueva-comanda" 
+        <Link
+          href="/nueva-comanda"
           className={`${styles.navItem} ${pathname === "/nueva-comanda" ? styles.active : ""}`}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -33,8 +33,8 @@ export default function Navigation() {
           <span>COMANDA</span>
         </Link>
 
-        <Link 
-          href="/inicio" 
+        <Link
+          href="/inicio"
           className={`${styles.navItem} ${pathname === "/inicio" ? styles.active : ""}`}
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

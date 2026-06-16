@@ -1,45 +1,46 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getServerSupabase, nextDateCR } from '@/lib/supabase/server-api';
+import { NextRequest } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk, isValidAdminKey, nextDateCR } from '@/lib/supabase/server-api';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
+    if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
+
     const supabase = getServerSupabase();
     const { start, end } = await nextDateCR(0);
 
-    const { data, error } = await supabase
+    const { data: ordenes } = await supabase
       .from('ordenes')
-      .select(`
-        id, mesa_numero, cliente_nombre, opened_at, closed_at, total, subtotal,
-        pagos ( id, forma_pago, monto, created_at )
-      `)
+      .select('id, mesa_numero, cliente_nombre, closed_at, total, tipo')
       .eq('estado', 'cerrada')
       .gte('closed_at', start)
       .lte('closed_at', end)
-      .order('closed_at', { ascending: false });
-    if (error) throw error;
+      .order('closed_at', { ascending: false }) as { data: any[]; error: any };
 
-    const orders = (data || []).map((o: any) => {
-      const pago = o.pagos?.[0];
+    if (!ordenes) return jsonOk({ orders: [], total_diario: 0 });
+
+    const orders = await Promise.all(ordenes.map(async (o: any) => {
+      const { data: pagos } = await supabase
+        .from('pagos')
+        .select('forma_pago')
+        .eq('orden_id', o.id)
+        .limit(1) as { data: any[]; error: any };
       return {
         orden_nu: o.id,
         cliente: o.cliente_nombre,
-        mesa: String(o.mesa_numero),
-        fecha: o.closed_at || o.opened_at,
+        mesa: o.mesa_numero,
+        fecha: o.closed_at,
         total: Number(o.total || 0),
-        forma_pago: pago?.forma_pago || 'N/A',
+        forma_pago: pagos?.[0]?.forma_pago || 'efectivo',
+        tipo: o.tipo,
       };
-    });
+    }));
 
-    const totalDiario = orders.reduce((acc, o) => acc + o.total, 0);
-
-    return NextResponse.json({
-      orders,
-      total_diario: totalDiario,
-    });
+    const total = orders.reduce((s, o) => s + o.total, 0);
+    return jsonOk({ orders, total_diario: total });
   } catch (err) {
     console.error('Error GET /api/admin/closed-orders:', err);
-    return NextResponse.json({ orders: [], total_diario: 0 }, { status: 500 });
+    return jsonError('Error al obtener órdenes cerradas', 500);
   }
 }

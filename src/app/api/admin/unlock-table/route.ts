@@ -1,11 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { jsonOk } from '@/lib/supabase/server-api';
+import { NextRequest } from 'next/server';
+import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
 
 export async function POST(request: NextRequest) {
   try {
+    if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
+
     const body = await request.json();
-    return jsonOk({ success: true, message: 'Mesa desbloqueada', mesa: body.mesa });
+    const { mesa } = body;
+    if (!mesa) return jsonError('mesa requerido');
+
+    const supabase = getServerSupabase();
+    const mesaNum = Number(mesa);
+    await (supabase.from('mesas') as any)
+      .update({ estado: 'ocupada' })
+      .eq('numero', mesaNum);
+    return jsonOk({ success: true, message: `Mesa ${mesaNum} desbloqueada.` });
   } catch (err) {
-    return NextResponse.json({ error: 'Error' }, { status: 500 });
+    return jsonError('Error al desbloquear mesa', 500);
   }
 }

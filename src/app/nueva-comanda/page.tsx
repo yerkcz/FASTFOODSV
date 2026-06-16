@@ -18,7 +18,9 @@ export default function NuevaComandaPage() {
   const handleContinuarMesa = () => {
     if (!mesaSeleccionada && !mesaLibre.trim()) return;
     const mesa = mesaLibre.trim() ? mesaLibre.trim() : String(mesaSeleccionada);
-    router.push(`/?mesa=${encodeURIComponent(mesa)}&waiter_mode=true`);
+    const name = nombreCliente.trim();
+    const base = `/?mesa=${encodeURIComponent(mesa)}&waiter_mode=true`;
+    router.push(name ? `${base}&nombre=${encodeURIComponent(name)}` : base);
   };
 
   const handleContinuarLlevar = () => {
@@ -104,6 +106,22 @@ export default function NuevaComandaPage() {
                 </button>
               ))}
             </div>
+
+            <div style={{ fontSize: "0.8rem", color: "var(--text-secondary)", marginBottom: "10px", fontWeight: 600 }}>
+              Nombre del cliente (opcional)
+            </div>
+            <input
+              type="text"
+              placeholder="Ej: Juan, María..."
+              value={nombreCliente}
+              onChange={(e) => setNombreCliente(e.target.value)}
+              style={{
+                width: "100%", padding: "14px", fontSize: "1.05rem",
+                background: "var(--surface)", color: "var(--text-primary)",
+                border: "1px solid var(--primary)", borderRadius: "10px",
+                outline: "none", boxSizing: "border-box", marginBottom: "16px"
+              }}
+            />
 
             <div style={{ borderTop: "1px solid var(--surface-border)", paddingTop: "16px", marginTop: "8px" }}>
               <button
