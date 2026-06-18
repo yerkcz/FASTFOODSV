@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       .lte('created_at', end);
 
     // Build payment lookup
-    const pagoMap = new Map((pagos || []).map((p: any) => [p.id, p.forma_pago]));
+    const pagoMap = new Map<any, string>((pagos || []).map((p: any) => [p.id, p.forma_pago]));
 
     // ── Time Series ──
     const dayMap = new Map<string, number>();

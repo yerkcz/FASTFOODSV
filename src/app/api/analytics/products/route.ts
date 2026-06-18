@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       .from('categorias')
       .select('id, nombre');
 
-    const catMap = new Map((cats || []).map((c: any) => [c.id, c.nombre]));
+    const catMap = new Map<any, string>((cats || []).map((c: any) => [c.id, c.nombre]));
 
     const prodMap = new Map<string, { producto: string; categoria: string; unidades_vendidas: number; ingresos: number }>();
     const catMap2 = new Map<string, number>();

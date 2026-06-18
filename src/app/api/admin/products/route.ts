@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("productos")
-    .insert({ nombre, precio: Number(precio), categoria_id, menu_origen: menu_origen || "menu1" })
+    .insert({ nombre, precio: Number(precio), categoria_id, menu_origen: menu_origen || "menu1" } as any)
     .select()
     .single();
 
@@ -54,7 +54,7 @@ export async function PATCH(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("productos")
-    .update(updates)
+    .update(updates as never)
     .eq("id", id)
     .select()
     .single();
@@ -72,7 +72,7 @@ export async function DELETE(request: NextRequest) {
 
   const { error } = await supabase
     .from("productos")
-    .update({ disponible: false, updated_at: new Date().toISOString() })
+    .update({ disponible: false, updated_at: new Date().toISOString() } as never)
     .eq("id", id);
 
   if (error) return jsonError(error.message, 500);
