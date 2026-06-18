@@ -1,5 +1,4 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js';
-import { cookies } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';

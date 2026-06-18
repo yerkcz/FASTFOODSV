@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
         precio_unitario: precio,
         cantidad: cant,
         subtotal: precio * cant,
-        notas: it.notes || it.notas || null,
+        notas: it.notas || null,
       });
     }
 

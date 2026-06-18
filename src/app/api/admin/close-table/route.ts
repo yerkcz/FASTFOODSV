@@ -1,6 +1,32 @@
 import { NextRequest } from 'next/server';
 import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
 
+async function fetchItemsSnapshot(
+  supabase: any,
+  ordenId: string,
+  restrictToIds?: string[]
+): Promise<any[]> {
+  // Si hay restrictToIds, leer SOLO por id (los items reasignados ya viven
+  // en la orden destino — leer por orden_id filtraría incorrectamente).
+  let q = supabase
+    .from('orden_items')
+    .select('nombre_producto, cantidad, precio_unitario, subtotal, notas, hora_registro')
+    .order('hora_registro', { ascending: true });
+  if (restrictToIds && restrictToIds.length > 0) {
+    q = q.in('id', restrictToIds);
+  } else {
+    q = q.eq('orden_id', ordenId);
+  }
+  const { data } = await q;
+  return (data || []).map((i: any) => ({
+    nombre: i.nombre_producto,
+    cantidad: Number(i.cantidad),
+    precio_unitario: Number(i.precio_unitario),
+    subtotal: Number(i.subtotal),
+    notas: i.notas || null,
+  }));
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
@@ -109,6 +135,7 @@ export async function POST(request: NextRequest) {
           .single() as { data: any; error: any };
         if (pagoErr) throw pagoErr;
 
+        const snapshot = await fetchItemsSnapshot(supabase, ordenId, items.map((i) => i.id));
         const nextNum = await getNextNum();
         await (supabase.from('comprobantes') as any).insert({
           numero: nextNum,
@@ -116,6 +143,7 @@ export async function POST(request: NextRequest) {
           pago_id: pagoRow.id,
           total: montoOrden,
           subtotal: montoOrden,
+          items_snapshot: snapshot,
         });
 
         const pagadosOrden = items.length;
@@ -136,11 +164,18 @@ export async function POST(request: NextRequest) {
         return jsonOk({ success: true, split: true });
       }
     } else if (pagosArray.length > 0) {
-      const ordenPrincipal = ordenesACerrar[0];
-      for (const pago of pagosArray) {
+      // Cada pago del array se asocia a la orden pagada (si viene con orden_nu)
+      // o se reparte secuencialmente sobre ordenesACerrar. Si la cantidad de
+      // pagos no coincide con ordenes, caemos al primer orden (modo legacy).
+      const pagosConOrden = pagosArray.map((p: any, i: number) => ({
+        ...p,
+        orden_id: p.orden_nu || ordenesACerrar[Math.min(i, ordenesACerrar.length - 1)],
+      }));
+
+      for (const pago of pagosConOrden) {
         const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
           .insert({
-            orden_id: ordenPrincipal,
+            orden_id: pago.orden_id,
             forma_pago: pago.forma_pago?.toLowerCase() || 'efectivo',
             monto: Number(pago.monto),
             monto_recibido: pago.monto_recibido ? Number(pago.monto_recibido) : null,
@@ -153,10 +188,11 @@ export async function POST(request: NextRequest) {
         const nextNum = await getNextNum();
         await (supabase.from('comprobantes') as any).insert({
           numero: nextNum,
-          orden_id: ordenPrincipal,
+          orden_id: pago.orden_id,
           pago_id: pagoRow.id,
           total: Number(pago.monto),
           subtotal: Number(pago.monto),
+          items_snapshot: await fetchItemsSnapshot(supabase, pago.orden_id),
         });
       }
 
@@ -200,6 +236,7 @@ export async function POST(request: NextRequest) {
           pago_id: pagoRow.id,
           total: monto,
           subtotal: monto,
+          items_snapshot: await fetchItemsSnapshot(supabase, ordenId),
         });
 
         await closeOrden(ordenId);

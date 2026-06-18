@@ -8,6 +8,7 @@ import { formatTime, getElapsedMins, getTimeColor, getTimeBg, getUrgencyBadge, g
 
 const AnalyticsDashboard = dynamic(() => import('@/components/analytics/AnalyticsDashboard'), { ssr: false });
 import { type Product, type CartItem } from "@/types";
+import { formatColones } from "@/lib/format";
 
 type MesaGroup = {
     mesa: string | null;
@@ -30,11 +31,6 @@ type OrderItem = {
 };
 
 
-
-function formatColones(amount: number): string {
-  const rounded = Math.round(amount).toString();
-  return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 /** Strip "Mesa " prefix to avoid "Mesa Mesa X" display duplication. */
 function stripMesaPrefix(s: string | null | undefined): string {
@@ -327,6 +323,17 @@ export default function AdminPortal() {
 
     const submitReassignItem = async () => {
         if (!reassignModal || !reassignTarget) return;
+
+        // Detectar si es cross-mesa
+        const itemMesa = selectedGroup?.ordenes.find(o => o.orden_nu === reassignModal.item.Orden_Nu);
+        const targetOrder = mesaGroups.flatMap(mg => mg.ordenes).find(o => o.orden_nu === reassignTarget);
+        const targetGroup = mesaGroups.find(mg => mg.ordenes.some(o => o.orden_nu === reassignTarget));
+        if (itemMesa && targetGroup && targetGroup.mesa !== selectedGroup?.mesa) {
+            if (!confirm("⚠️ Este ítem se moverá a OTRA MESA.\n(Origen: " + (selectedGroup?.mesa || 'Mesa actual') + " → Destino: " + (targetGroup.mesa || 'Otra mesa') + ")\n¿Estás segura?")) {
+                return;
+            }
+        }
+
         setReassigning(true);
         try {
             const res = await fetch("/api/admin/reassign-item", {
@@ -509,7 +516,7 @@ export default function AdminPortal() {
                     mesa: posTipo === 'Restaurante' ? posMesa : null,
                     cliente: posCliente || posMesa,
                     tipo: posTipo,
-                    items: cart.map(c => ({ name: c.name, quantity: c.quantity, notes: c.notes || '' })),
+                    items: cart.map(c => ({ name: c.name, quantity: c.quantity, notas: c.notas || '' })),
                     notas: ""
                 })
             });
@@ -562,7 +569,7 @@ export default function AdminPortal() {
             });
             if (!res.ok) throw new Error("Error obteniendo detalles");
             const data = await res.json();
-            
+
             const formattedItems = data.items.map((i: any, index: number) => ({
                 id: i.ID || String(index),
                 name: i.ARTICULO,
@@ -571,10 +578,18 @@ export default function AdminPortal() {
                 category: "",
                 notas: i.NOTAS || undefined
             }));
-            
+
+            // Calcular total desde items (ordenes.total puede ser 0 tras el cierre
+            // porque el trigger recalcula al borrar orden_items).
+            const computedTotal = formattedItems.reduce(
+                (s: number, it: any) => s + Number(it.price) * Number(it.quantity),
+                0
+            );
+            const finalTotal = computedTotal > 0 ? computedTotal : Number(orderTotal || 0);
+
             const { generateInvoice } = await import('@/lib/generateInvoice');
             const mesaValue = stripMesaPrefix(clienteName) ? "Restaurante" : "Llevar";
-            await generateInvoice(formattedItems, orderTotal, { mesa: mesaValue, cliente: clienteName }, ordenNu);
+            await generateInvoice(formattedItems, finalTotal, { mesa: mesaValue, cliente: clienteName }, ordenNu);
         } catch (err) {
             alert("No se pudo generar el PDF");
         }
@@ -690,10 +705,11 @@ export default function AdminPortal() {
             <div style={{ paddingTop: '80px', paddingBottom: '40px', paddingLeft: '16px', paddingRight: '16px', maxWidth: '800px', margin: '0 auto' }}>
                 
                 {/* Admin Tabs */}
-                <div style={{ display: 'flex', gap: '0', backgroundColor: 'var(--card-bg)', borderRadius: '12px', marginBottom: '20px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                <div style={{ display: 'flex', gap: '0', backgroundColor: 'var(--card-bg)', borderRadius: '12px', marginBottom: '20px', overflow: 'auto hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
+                    <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
                     {[{key: 'open' as const, label: 'En Curso'}, {key: 'closed' as const, label: 'Cerradas'}, {key: 'caja' as const, label: 'Cierre'}, {key: 'stats' as const, label: 'Estadísticas'}].map(tab => (
                         <button key={tab.key} onClick={() => setAdminTab(tab.key)} style={{
-                            flex: 1, padding: '14px 8px', fontSize: '0.85rem', fontWeight: 600, border: 'none', cursor: 'pointer',
+                            flex: '1 0 auto', padding: '12px 10px', fontSize: 'clamp(0.7rem, 2.5vw, 0.85rem)', fontWeight: 600, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                             borderBottom: adminTab === tab.key ? '3px solid var(--primary)' : '3px solid transparent',
                             backgroundColor: adminTab === tab.key ? 'var(--surface)' : 'var(--card-bg)', 
                             color: adminTab === tab.key ? 'var(--primary)' : 'var(--text-secondary)',
@@ -836,7 +852,7 @@ export default function AdminPortal() {
                         ) : (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                                 {closedOrders.map(order => (
-                                    <div key={order.orden_nu} style={{ 
+                                    <div key={order.comprobante_id || order.orden_nu} style={{ 
                                         backgroundColor: 'var(--card-bg)', borderRadius: '12px', padding: '16px', border: '1px solid var(--surface-border)',
                                         boxShadow: '0 2px 4px rgba(0,0,0,0.04)', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
                                     }}>
@@ -1059,8 +1075,8 @@ export default function AdminPortal() {
                     {/* ===== SPLIT BILL FOOTER ===== */}
                     <div style={{ 
                         position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: 'var(--card-bg)', 
-                        borderTop: '1px solid var(--surface-border)', padding: '14px 16px', paddingBottom: 'max(14px, env(safe-area-inset-bottom))', 
-                        boxShadow: '0 -4px 16px rgba(0,0,0,0.08)', zIndex: 2001, maxHeight: '55dvh', overflowY: 'auto',
+                        borderTop: '1px solid var(--surface-border)', padding: '8px 12px', paddingBottom: 'max(8px, env(safe-area-inset-bottom))', 
+                        boxShadow: '0 -4px 12px rgba(0,0,0,0.08)', zIndex: 2001, maxHeight: '38dvh', overflowY: 'auto',
                         WebkitOverflowScrolling: 'touch'
                     }}>
 
@@ -1068,7 +1084,7 @@ export default function AdminPortal() {
                     {splitMode === 'none' && (() => {
                         return (
                         <>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.4rem', fontWeight: 800, color: 'var(--primary)', borderTop: '2px solid var(--surface-border)', paddingTop: '8px', marginBottom: '12px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem', fontWeight: 800, color: 'var(--primary)', borderTop: '1px solid var(--surface-border)', paddingTop: '4px', marginBottom: '8px' }}>
                                 <span>TOTAL</span><span>{formatColones(checkoutSelectedTotal)}</span>
                             </div>
 
@@ -1076,37 +1092,37 @@ export default function AdminPortal() {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
                                 {(['Efectivo','Tarjeta','Sinpe'] as const).map(m => (
                                     <button key={m} onClick={() => { setPaymentMethod(m); if (m !== 'Efectivo') setAmountReceived(checkoutSelectedTotal.toString()); else setAmountReceived(''); }}
-                                        style={{ flex:'1 1 80px', padding:'10px', borderRadius:'8px', fontSize:'0.85rem', fontWeight:600, border:'1px solid', cursor:'pointer', transition:'all 0.15s', minHeight:'44px',
+                                        style={{ flex:'1 1 60px', padding:'6px', borderRadius:'6px', fontSize:'0.75rem', fontWeight:600, border:'1px solid', cursor:'pointer', transition:'all 0.15s', minHeight:'36px',
                                             ...(paymentMethod === m ? {backgroundColor:'var(--primary-surface)', color:'var(--primary)', borderColor:'var(--primary)'} : {backgroundColor:'var(--surface)', color:'var(--text-secondary)', borderColor:'var(--surface-border)'}) }}
                                     >{m}</button>
                                 ))}
                             </div>
 
                             {paymentMethod === 'Efectivo' && (
-                                <div style={{ display:'flex', gap:'12px', marginBottom:'12px', alignItems:'center' }}>
+                                <div style={{ display:'flex', gap:'8px', marginBottom:'8px', alignItems:'center' }}>
                                     <input type="number" placeholder="Monto recibido" min="0" value={amountReceived}
                                         onChange={e => setAmountReceived(e.target.value)}
-                                        style={{ flex:1, padding:'12px', fontSize:'1.1rem', fontWeight:700, border:'2px solid var(--surface-border)', borderRadius:'8px' }} />
+                                        style={{ flex:1, padding:'8px', fontSize:'0.9rem', fontWeight:700, border:'2px solid var(--surface-border)', borderRadius:'6px' }} />
                                     {Number(amountReceived) > checkoutSelectedTotal && (
-                                        <div style={{ flex:1, background:'var(--surface)', padding:'12px', borderRadius:'8px', border:'1px solid var(--surface-border)', textAlign:'center' }}>
-                                            <div style={{ fontSize:'0.7rem', color:'var(--text-secondary)', fontWeight:600, textTransform:'uppercase' }}>Vuelto</div>
-                                            <div style={{ fontSize:'1.4rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-checkoutSelectedTotal))}</div>
+                                        <div style={{ flex:'0 0 auto', background:'var(--surface)', padding:'6px 10px', borderRadius:'6px', border:'1px solid var(--surface-border)', textAlign:'center' }}>
+                                            <div style={{ fontSize:'0.6rem', color:'var(--text-secondary)', fontWeight:600, textTransform:'uppercase' }}>Vuelto</div>
+                                            <div style={{ fontSize:'1rem', color:'#1a73e8', fontWeight:800 }}>{formatColones(Math.max(0,(Number(amountReceived)||0)-checkoutSelectedTotal))}</div>
                                         </div>
                                     )}
                                 </div>
                             )}
 
-                            <div style={{ display:'flex', gap:'8px' }}>
+                            <div style={{ display:'flex', gap:'6px' }}>
                                 {/* Cobrar Todo */}
                                 <button onClick={checkOutAndClose}
                                     disabled={closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) || checkoutSelectedTotal === 0}
-                                    style={{ flex:2, padding:'14px', background: checkoutSelectedTotal===0?'var(--surface-border)':'var(--primary-gradient)', color: checkoutSelectedTotal===0?'var(--text-muted)':'white', border:'none', borderRadius:'8px', fontSize:'0.9rem', fontWeight:800, textTransform:'uppercase', cursor: checkoutSelectedTotal===0?'default':'pointer', boxShadow: checkoutSelectedTotal===0?'none':'0 4px 12px rgba(37,211,102,0.3)' }}>
+                                    style={{ flex:2, padding:'10px', background: checkoutSelectedTotal===0?'var(--surface-border)':'var(--primary-gradient)', color: checkoutSelectedTotal===0?'var(--text-muted)':'white', border:'none', borderRadius:'6px', fontSize:'0.8rem', fontWeight:800, textTransform:'uppercase', cursor: checkoutSelectedTotal===0?'default':'pointer', boxShadow: checkoutSelectedTotal===0?'none':'0 2px 8px rgba(37,211,102,0.3)' }}>
                                     {closing === (selectedGroup.mesa || selectedGroup.ordenes[0].orden_nu) ? 'CERRANDO...' : `COBRAR ${formatColones(checkoutSelectedTotal)}`}
                                 </button>
                                 {/* Dividir Cuenta */}
                                 <button onClick={() => setSplitMode('by_person')}
-                                    style={{ flex:1, padding:'14px', background:'var(--primary-surface)', color:'#1a73e8', border:'none', borderRadius:'8px', fontSize:'0.85rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'6px' }}>
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                                    style={{ flex:1, padding:'10px', background:'var(--primary-surface)', color:'#1a73e8', border:'none', borderRadius:'6px', fontSize:'0.75rem', fontWeight:700, cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', gap:'4px' }}>
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                                     Dividir
                                 </button>
                             </div>

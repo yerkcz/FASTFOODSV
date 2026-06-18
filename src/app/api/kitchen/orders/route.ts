@@ -10,10 +10,10 @@ export async function GET(request: NextRequest) {
       .from('orden_items')
       .select(`
         id, nombre_producto, cantidad, notas, listo, estado_kds, hora_registro,
-        ordenes!inner ( id, mesa_numero, cliente_nombre, opened_at, estado, tipo ),
-        productos (
+        ordenes:orden_id!inner ( id, mesa_numero, cliente_nombre, opened_at, estado, tipo ),
+        productos:producto_id (
           id,
-          categorias (
+          categorias:categoria_id (
             id,
             nombre
           )

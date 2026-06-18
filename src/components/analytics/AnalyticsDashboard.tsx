@@ -6,20 +6,12 @@ import {
 } from 'chart.js';
 import { Line, Bar, Doughnut, Chart } from 'react-chartjs-2';
 import { generateReportPDF } from '@/lib/generateReport';
+import { formatColones } from '@/lib/format';
 
 ChartJS.register(
   CategoryScale, LinearScale, BarElement, LineElement,
   PointElement, ArcElement, Title, Tooltip, Legend, Filler, LineController, BarController, DoughnutController
 );
-
-function formatColones(amount: number): string {
-  return new Intl.NumberFormat('es-CR', {
-    style: 'currency',
-    currency: 'CRC',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0
-  }).format(amount);
-}
 
 const COLORS = {
   primary: '#1a73e8',

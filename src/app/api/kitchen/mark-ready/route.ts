@@ -7,9 +7,10 @@ export async function POST(request: NextRequest) {
     const { itemId, listo } = body;
     if (!itemId) return jsonError('itemId requerido');
 
+    const ready = listo === undefined ? true : !!listo;
     const supabase = getServerSupabase();
     const { error } = await (supabase.from('orden_items') as any)
-      .update({ listo: !!listo, estado_kds: listo ? 'listo' : 'pendiente' })
+      .update({ listo: ready, estado_kds: ready ? 'listo' : 'pendiente' })
       .eq('id', itemId);
     if (error) throw error;
     return jsonOk({ success: true });

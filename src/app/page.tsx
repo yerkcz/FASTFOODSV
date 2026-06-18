@@ -3,15 +3,10 @@
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { generateInvoice } from "@/lib/generateInvoice";
 import { type Product, type CartItem } from "@/types";
 import cardStyles from "@/components/ProductCard.module.css";
 import cartStyles from "@/components/Cart.module.css";
-
-function formatColones(amount: number): string {
-  const rounded = Math.round(amount).toString();
-  return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
+import { formatColones } from "@/lib/format";
 
 const API_KEY = process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY || "";
 
@@ -500,16 +495,6 @@ export default function POSPage() {
       }
 
 
-
-      // Generate PDF only for new orders (not when adding to existing)
-      if (!data.added_to_existing) {
-        await generateInvoice(
-          cart,
-          total,
-          { mesa: mesaName, cliente },
-          ordenNu
-        );
-      }
 
       // Show success
       setShowConfirm(false);

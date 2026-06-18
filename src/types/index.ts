@@ -12,7 +12,6 @@ export type Product = {
 export type CartItem = Product & {
   quantity: number;
   notas?: string;
-  notes?: string; // Aliases for backward compatibility in some components
 };
 
 export type OrderStatus = 'pendiente' | 'en_cocina' | 'listo' | 'entregado';

@@ -12,6 +12,17 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServerSupabase();
 
+    const { data: orden, error: errOrden } = await supabase
+      .from('ordenes')
+      .select('id, estado')
+      .eq('id', orden_nu)
+      .single() as { data: any; error: any };
+
+    if (errOrden || !orden) return jsonError('Orden no encontrada', 404);
+    if (orden.estado !== 'abierta') {
+      return jsonError(`No se pueden agregar items a una orden ${orden.estado}`, 400);
+    }
+
     for (const it of items) {
       const { data: prod } = await supabase
         .from('productos')
@@ -28,7 +39,7 @@ export async function POST(request: NextRequest) {
         precio_unitario: precio,
         cantidad: cant,
         subtotal: precio * cant,
-        notas: it.notes || it.notas || null,
+        notas: it.notas || null,
       });
     }
 

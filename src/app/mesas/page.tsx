@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel } from "@/lib/timeUtils";
+import { formatColones } from "@/lib/format";
 
 type Table = {
     orden_nu: string;
@@ -26,11 +27,6 @@ type OrderItem = {
     HoraRegistro: string;
     FechaRegistro: string;
 };
-
-function formatColones(amount: number): string {
-    const rounded = Math.round(amount).toString();
-    return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 function stripMesaPrefix(s: string | null | undefined): string {
     if (!s) return '';
@@ -177,7 +173,7 @@ export default function MesasPage() {
                 headers: { "Content-Type": "application/json", "x-admin-key": process.env.NEXT_PUBLIC_ADMIN_API_KEY || "0000" },
                 body: JSON.stringify({
                     orden_nu: targetOrdenNu,
-                    items: selectedProducts.map(p => ({ name: p.name, quantity: p.quantity, notes: p.notes || "" }))
+                    items: selectedProducts.map(p => ({ name: p.name, quantity: p.quantity, notas: p.notas || "" }))
                 })
             });
             if (res.ok) {
@@ -620,7 +616,12 @@ export default function MesasPage() {
     return (
         <div style={{ minHeight: "100dvh", backgroundColor: 'var(--background)', color: 'var(--text-primary)', fontFamily: 'Roboto, sans-serif' }}>
             <header style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '56px', backgroundColor: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', zIndex: 1000 }}>
-                <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Mesas en Servicio</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <a href="/inicio" style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '4px', display: 'flex' }}>
+                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+                    </a>
+                    <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Mesas en Servicio</div>
+                </div>
                 <div onClick={fetchTables} style={{ cursor: 'pointer', display: 'flex' }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg></div>
             </header>
 

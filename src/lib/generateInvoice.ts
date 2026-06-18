@@ -1,223 +1,246 @@
-import { jsPDF } from "jspdf";
-
 import { type CartItem, type OrderMeta } from "@/types";
+import { formatColones } from "@/lib/format";
 
-function formatColones(amount: number): string {
-    const rounded = Math.round(amount).toString();
-    return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+export type InvoicePago = {
+  forma_pago: "efectivo" | "tarjeta" | "sinpe" | "mixto";
+  recibido: number;
+  vuelto: number;
+};
+
+const WIDTH_PX = 302;
+const LINE_HEIGHT = 14;
+const MARGIN = 8;
+
+function crNow(): Date {
+  return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
+}
+
+function crDateStr(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = d.getFullYear();
+  return `${dd}/${mm}/${yy}`;
+}
+
+function crTimeStr(d: Date): string {
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mi}`;
+}
+
+function loadImage(src: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
+function drawCenteredText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  y: number,
+  font = "bold 14px monospace",
+  color = "#000"
+) {
+  ctx.fillStyle = color;
+  ctx.font = font;
+  ctx.textAlign = "center";
+  ctx.fillText(text, WIDTH_PX / 2, y);
+}
+
+function drawLeftRight(
+  ctx: CanvasRenderingContext2D,
+  left: string,
+  right: string,
+  y: number,
+  bold = false
+) {
+  ctx.fillStyle = "#000";
+  ctx.font = bold ? "bold 11px monospace" : "11px monospace";
+  ctx.textAlign = "left";
+  ctx.fillText(left, MARGIN, y);
+  ctx.textAlign = "right";
+  ctx.fillText(right, WIDTH_PX - MARGIN, y);
+}
+
+function drawDashed(ctx: CanvasRenderingContext2D, y: number) {
+  ctx.strokeStyle = "#000";
+  ctx.setLineDash([3, 2]);
+  ctx.beginPath();
+  ctx.moveTo(MARGIN, y);
+  ctx.lineTo(WIDTH_PX - MARGIN, y);
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function drawSolid(ctx: CanvasRenderingContext2D, y: number) {
+  ctx.strokeStyle = "#000";
+  ctx.setLineDash([]);
+  ctx.beginPath();
+  ctx.moveTo(MARGIN, y);
+  ctx.lineTo(WIDTH_PX - MARGIN, y);
+  ctx.stroke();
+}
+
+function formatItemLine(cant: number, nombre: string, total: number): { cant: string; name: string; total: string } {
+  const cantStr = String(cant).padStart(2, " ");
+  const totalStr = formatColones(total);
+  const maxName = 28;
+  const truncated = nombre.length > maxName ? nombre.slice(0, maxName - 1) + "…" : nombre;
+  return { cant: cantStr, name: truncated.padEnd(maxName, " "), total: totalStr };
 }
 
 export async function generateInvoice(
-    items: CartItem[],
-    total: number,
-    meta: OrderMeta = { mesa: "Mesa 10", cliente: "" },
-    ordenNu?: string
+  items: CartItem[],
+  total: number,
+  meta: OrderMeta = { mesa: "Mesa 1", cliente: "" },
+  ordenNu?: string,
+  pago?: InvoicePago
 ): Promise<void> {
-    const doc = new jsPDF({ unit: "mm", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const margin = 25;
-    const contentWidth = pageWidth - margin * 2;
+  void pago;
+  const ctx = document.createElement("canvas").getContext("2d");
+  if (!ctx) throw new Error("Canvas 2D no disponible");
 
-    // Col X positions
-    const colNameX = margin;
-    const colCantX = 130;
-    const colPriceX = 155;
-    const colTotalX = pageWidth - margin;
+  const now = crNow();
+  const logo = await loadImage("/LogoFastF.jpeg");
 
-    // Load logo
-    let logoData: string | null = null;
-    try {
-        const response = await fetch("/LogoFastF.jpeg");
-        const blob = await response.blob();
-        logoData = await new Promise<string>((resolve) => {
-            const reader = new FileReader();
-            reader.onloadend = () => resolve(reader.result as string);
-            reader.readAsDataURL(blob);
-        });
-    } catch {
-        // Logo not available
+  const fontHeader = "11px monospace";
+  const fontBody = "11px monospace";
+  const fontTotal = "bold 16px monospace";
+  const fontBrand = "bold 13px monospace";
+
+  let y = MARGIN + 4;
+
+  const headerLines = ["FAST FOOD SAN VICENTE", "Cruce San Vicente, San Carlos"];
+  const headerReserved = (logo ? 70 : 0) + headerLines.length * LINE_HEIGHT + 8;
+  const metaLines = 3;
+  const metaReserved = metaLines * LINE_HEIGHT + 12;
+  const tableHeader = LINE_HEIGHT + 8;
+  const itemReserved = items.reduce((sum, it) => {
+    const base = LINE_HEIGHT;
+    const note = it.notas ? LINE_HEIGHT : 0;
+    return sum + base + note;
+  }, 0) + 8;
+  const totalsReserved = LINE_HEIGHT * 4 + 8;
+  const footerLines = 2;
+  const footerReserved = footerLines * LINE_HEIGHT + 8;
+
+  const height =
+    headerReserved + metaReserved + tableHeader + itemReserved + totalsReserved + footerReserved;
+
+  const canvas = ctx.canvas;
+  canvas.width = WIDTH_PX;
+  canvas.height = height;
+
+  ctx.fillStyle = "#fff";
+  ctx.fillRect(0, 0, WIDTH_PX, height);
+
+  ctx.fillStyle = "#000";
+  ctx.font = fontBody;
+  ctx.textBaseline = "top";
+
+  if (logo) {
+    const logoSize = 60;
+    const cx = WIDTH_PX / 2;
+    const cy = y + logoSize / 2;
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, logoSize / 2, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.drawImage(logo, cx - logoSize / 2, cy - logoSize / 2, logoSize, logoSize);
+    ctx.restore();
+    y += logoSize + 4;
+  }
+
+  drawCenteredText(ctx, "FAST FOOD SAN VICENTE", y, fontBrand);
+  y += LINE_HEIGHT;
+  drawCenteredText(ctx, "Cruce San Vicente, San Carlos", y, "10px monospace", "#444");
+  y += LINE_HEIGHT;
+  drawSolid(ctx, y + 4);
+  y += LINE_HEIGHT;
+
+  ctx.font = fontHeader;
+  drawLeftRight(ctx, ordenNu ? `ORDEN #${ordenNu.slice(0, 8)}` : "", `Fecha: ${crDateStr(now)}`, y, true);
+  y += LINE_HEIGHT;
+  drawLeftRight(ctx, `Hora: ${crTimeStr(now)}`, meta.mesa ? meta.mesa.toUpperCase() : "", y);
+  y += LINE_HEIGHT;
+  if (meta.cliente) {
+    drawLeftRight(ctx, `Cliente: ${meta.cliente.slice(0, 22)}`, "", y);
+    y += LINE_HEIGHT;
+  }
+  drawDashed(ctx, y + 2);
+  y += LINE_HEIGHT;
+
+  ctx.font = "bold 10px monospace";
+  ctx.textAlign = "left";
+  ctx.fillStyle = "#000";
+  ctx.fillText("CANT", MARGIN, y);
+  ctx.fillText("ARTICULO", MARGIN + 28, y);
+  ctx.textAlign = "right";
+  ctx.fillText("TOTAL", WIDTH_PX - MARGIN, y);
+  y += LINE_HEIGHT;
+  drawDashed(ctx, y);
+  y += 4;
+
+  ctx.font = fontBody;
+  items.forEach((item) => {
+    const line = formatItemLine(item.quantity, item.name, item.price * item.quantity);
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#000";
+    ctx.fillText(line.cant, MARGIN, y);
+    ctx.fillText(line.name, MARGIN + 28, y);
+    ctx.textAlign = "right";
+    ctx.fillText(line.total, WIDTH_PX - MARGIN, y);
+    y += LINE_HEIGHT;
+
+    if (item.notas) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#555";
+      ctx.font = "italic 9px monospace";
+      const note = item.notas.length > 36 ? item.notas.slice(0, 35) + "…" : item.notas;
+      ctx.fillText(`* ${note}`, MARGIN + 8, y);
+      ctx.font = fontBody;
+      ctx.fillStyle = "#000";
+      y += LINE_HEIGHT;
     }
+  });
 
-    let y = 30;
+  drawSolid(ctx, y + 2);
+  y += LINE_HEIGHT;
 
-    // ═══════════════════════════════════════
-    // HEADER — Minimalist & Elegant
-    // ═══════════════════════════════════════
+  ctx.font = "bold 11px monospace";
+  drawLeftRight(ctx, "SUBTOTAL", formatColones(total), y);
+  y += LINE_HEIGHT;
 
-    // Logo Centered
-    if (logoData) {
-        doc.addImage(logoData, "PNG", pageWidth / 2 - 16, y, 32, 32);
-        y += 40;
-    } else {
-        y += 20;
-    }
+  ctx.font = fontTotal;
+  ctx.textAlign = "right";
+  ctx.fillStyle = "#047857";
+  ctx.fillText(`TOTAL  ${formatColones(total)}`, WIDTH_PX - MARGIN, y + 4);
+  ctx.fillStyle = "#000";
+  y += LINE_HEIGHT + 6;
 
-    // Brand Name
-    doc.setTextColor(13, 17, 23);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(24);
-    doc.text("FAST FOOD SAN VICENTE", pageWidth / 2, y, { align: "center" });
+  drawDashed(ctx, y);
+  y += LINE_HEIGHT;
 
-    // Subtitle
-    y += 6;
-    doc.setFontSize(9);
-    doc.setTextColor(87, 96, 106);
-    doc.setFont("helvetica", "normal");
-    doc.text("Cruce San Vicente, San Carlos", pageWidth / 2, y, { align: "center", charSpace: 1 });
+  ctx.font = fontBody;
+  ctx.textAlign = "center";
+  ctx.fillText("¡Muchas gracias por su preferencia!", WIDTH_PX / 2, y);
+  y += LINE_HEIGHT;
+  ctx.font = "9px monospace";
+  ctx.fillStyle = "#555";
+  ctx.fillText("Comprobante interno - Regimen Simplificado", WIDTH_PX / 2, y);
 
-    y += 15;
-
-    // Divider
-    doc.setDrawColor(5, 150, 105);
-    doc.setLineWidth(0.8);
-    doc.line(margin, y, pageWidth - margin, y);
-
-    // ═══════════════════════════════════════
-    // ORDER META INFO
-    // ═══════════════════════════════════════
-    y += 10;
-
-    const now = new Date();
-    const dateStr = now.toLocaleDateString("es-CR", { timeZone: 'America/Costa_Rica', day: '2-digit', month: '2-digit', year: 'numeric' });
-    const timeStr = now.toLocaleTimeString("es-CR", { timeZone: 'America/Costa_Rica', hour: '2-digit', minute: '2-digit' });
-    
-
-    doc.setFontSize(10);
-    doc.setTextColor(13, 17, 23);
-
-    // Left side: Order & Date
-    doc.setFont("helvetica", "bold");
-    if (ordenNu) {
-        doc.text(`ORDEN: #${ordenNu}`, margin, y);
-    }
-    doc.setFont("helvetica", "normal");
-    doc.text(`Fecha: ${dateStr} ${timeStr}`, margin, y + 6);
-
-    // Right side: Table & Client
-    doc.setFont("helvetica", "bold");
-    doc.text(meta.mesa.toUpperCase(), pageWidth - margin, y, { align: "right" });
-
-    doc.setFont("helvetica", "normal");
-    if (meta.cliente) {
-        doc.text(`Cliente: ${meta.cliente}`, pageWidth - margin, y + 6, { align: "right" });
-    }
-
-    y += 14;
-
-    // Divider
-    doc.setDrawColor(225, 228, 232);
-    doc.setLineWidth(0.5);
-    doc.line(margin, y, pageWidth - margin, y);
-
-    // ═══════════════════════════════════════
-    // TABLE HEADER
-    // ═══════════════════════════════════════
-    y += 8;
-    doc.setFontSize(8);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(87, 96, 106);
-
-    doc.text("ARTÍCULO", colNameX, y);
-    doc.text("CANT", colCantX, y, { align: "center" });
-    doc.text("P. UNIT", colPriceX, y, { align: "right" });
-    doc.text("SUBTOTAL", colTotalX, y, { align: "right" });
-
-    y += 4;
-    doc.setDrawColor(225, 228, 232);
-    doc.setLineWidth(0.2);
-    doc.line(margin, y, pageWidth - margin, y);
-
-    // ═══════════════════════════════════════
-    // TABLE ROWS
-    // ═══════════════════════════════════════
-    y += 8;
-    doc.setFontSize(10);
-    doc.setTextColor(13, 17, 23);
-
-    items.forEach((item) => {
-        if (y > 260) {
-            doc.addPage();
-            y = 20;
-        }
-
-        // Item Name
-        doc.setFont("helvetica", "bold");
-        doc.text(item.name.substring(0, 42), colNameX, y);
-
-        // Quantity
-        doc.setFont("helvetica", "normal");
-        doc.setTextColor(87, 96, 106);
-        doc.text(String(item.quantity), colCantX, y, { align: "center" });
-
-        // Unit Price
-        doc.text(formatColones(item.price), colPriceX, y, { align: "right" });
-
-        // Subtotal
-        doc.setTextColor(13, 17, 23);
-        doc.text(formatColones(item.price * item.quantity), colTotalX, y, {
-            align: "right",
-        });
-
-        const noteText = item.notas || item.notes;
-        if (noteText) {
-            y += 4;
-            doc.setFontSize(8);
-            doc.setFont("helvetica", "italic");
-            doc.setTextColor(139, 148, 158);
-            doc.text(`* ${noteText}`, colNameX + 2, y);
-            doc.setFontSize(10);
-            doc.setFont("helvetica", "normal");
-        }
-
-        y += 12;
-    });
-
-    // ═══════════════════════════════════════
-    // TOTAL SECTION
-    // ═══════════════════════════════════════
-
-    // Top line for total
-    doc.setDrawColor(5, 150, 105);
-    doc.setLineWidth(1);
-    doc.line(margin, y, pageWidth - margin, y);
-
-    y += 12;
-
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(13, 17, 23);
-    doc.text("TOTAL", pageWidth - margin - 50, y, { align: "right" });
-
-    doc.setFontSize(18);
-    doc.setTextColor(5, 150, 105);
-    doc.text(formatColones(total), colTotalX, y, { align: "right" });
-
-    // Double line under total
-    y += 4;
-    doc.setLineWidth(0.3);
-    doc.line(pageWidth - margin - 70, y, pageWidth - margin, y);
-    y += 1.5;
-    doc.line(pageWidth - margin - 70, y, pageWidth - margin, y);
-
-    // ═══════════════════════════════════════
-    // FOOTER
-    // ═══════════════════════════════════════
-    y += 40;
-
-    doc.setFontSize(10);
-    doc.setTextColor(87, 96, 106);
-    doc.setFont("helvetica", "normal");
-    doc.text("¡Muchas gracias por su preferencia!", pageWidth / 2, y, { align: "center" });
-
-    y += 6;
-    doc.setFontSize(8);
-    doc.setTextColor(139, 148, 158);
-    doc.text("Este comprobante es para control interno.", pageWidth / 2, y, { align: "center" });
-
-    // Save
-    const fileName = ordenNu
-        ? `FastFoodSV_Comprobante_${ordenNu}.pdf`
-        : `FastFoodSV_Comprobante_${Date.now()}.pdf`;
-
-    doc.save(fileName);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = ordenNu
+    ? `Comprobante_${ordenNu.slice(0, 8)}.jpg`
+    : `Comprobante_${Date.now()}.jpg`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

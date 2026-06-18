@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { formatColones } from "@/lib/format";
 
 type ClosedOrder = {
     orden_nu: string;
@@ -10,11 +11,6 @@ type ClosedOrder = {
     total: number;
     forma_pago: string;
 };
-
-function formatColones(amount: number): string {
-    const rounded = Math.round(amount).toString();
-    return "\u20A1" + rounded.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
-}
 
 export default function EntregadosPage() {
     const [orders, setOrders] = useState<ClosedOrder[]>([]);
