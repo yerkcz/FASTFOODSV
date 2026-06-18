@@ -40,7 +40,7 @@ function stripMesaPrefix(s: string | null | undefined): string {
 
 export default function AdminPortal() {
     const [adminKey, setAdminKey] = useState<string>("");
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [isLoggedIn, setIsLoggedIn] = useState(true);
     const [loginError, setLoginError] = useState("");
     
     const [mesaGroups, setMesaGroups] = useState<MesaGroup[]>([]);
@@ -105,8 +105,19 @@ export default function AdminPortal() {
     const [productSearch, setProductSearch] = useState("");
     const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
 
+    // Product CRUD state
+    const [products, setProducts] = useState<any[]>([]);
+    const [categories, setCategories] = useState<any[]>([]);
+    const [showProductModal, setShowProductModal] = useState(false);
+    const [editingProduct, setEditingProduct] = useState<any | null>(null);
+    const [productName, setProductName] = useState("");
+    const [productPrice, setProductPrice] = useState("");
+    const [productCategory, setProductCategory] = useState("");
+    const [productMenu, setProductMenu] = useState("menu1");
+    const [savingProduct, setSavingProduct] = useState(false);
+
     // Phase D: Admin Tabs & Closed Orders
-    const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja" | "stats">("open");
+    const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja" | "stats" | "products">("open");
     const [closedOrders, setClosedOrders] = useState<any[]>([]);
     const [closedTotal, setClosedTotal] = useState(0);
     const [meseroCount, setMeseroCount] = useState(1);
@@ -596,6 +607,73 @@ export default function AdminPortal() {
     };
 
 
+    // ── Product CRUD ──────────────────────────────────────
+    const fetchProductsData = useCallback(async () => {
+      try {
+        const res = await fetch("/api/admin/products", { headers: { "x-admin-key": adminKey } });
+        if (res.ok) {
+          const data = await res.json();
+          setProducts(data.products || []);
+          setCategories(data.categories || []);
+        }
+      } catch { /* ignore */ }
+    }, [adminKey]);
+
+    useEffect(() => {
+      if (adminTab === "products") fetchProductsData();
+    }, [adminTab, fetchProductsData]);
+
+    const openAddProduct = () => {
+      setEditingProduct(null);
+      setProductName("");
+      setProductPrice("");
+      setProductCategory(categories[0]?.id || "");
+      setProductMenu("menu1");
+      setShowProductModal(true);
+    };
+
+    const openEditProduct = (p: any) => {
+      setEditingProduct(p);
+      setProductName(p.nombre);
+      setProductPrice(String(p.precio));
+      setProductCategory(p.categoria_id);
+      setProductMenu(p.menu_origen || "menu1");
+      setShowProductModal(true);
+    };
+
+    const saveProduct = async () => {
+      if (!productName || !productPrice || !productCategory) return;
+      setSavingProduct(true);
+      try {
+        const body = editingProduct
+          ? { id: editingProduct.id, nombre: productName, precio: Number(productPrice), menu_origen: productMenu }
+          : { nombre: productName, precio: Number(productPrice), categoria_id: productCategory, menu_origen: productMenu };
+        const method = editingProduct ? "PATCH" : "POST";
+        const res = await fetch("/api/admin/products", {
+          method,
+          headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          setShowProductModal(false);
+          fetchProductsData();
+        }
+      } catch { /* ignore */ }
+      finally { setSavingProduct(false); }
+    };
+
+    const deleteProduct = (id: string) => {
+      showConfirm("Desactivar producto", "¿Desactivar este producto? No aparecerá en el menú.", async () => {
+        await fetch("/api/admin/products", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json", "x-admin-key": adminKey },
+          body: JSON.stringify({ id }),
+        });
+        fetchProductsData();
+      });
+    };
+    // ──────────────────────────────────────────────────────
+
     // UI TopAppBar mimicking the home page
     const TopAppBar = ({ title, onSync }: { title: string, onSync?: () => void }) => (
         <header style={{ 
@@ -707,7 +785,7 @@ export default function AdminPortal() {
                 {/* Admin Tabs */}
                 <div style={{ display: 'flex', gap: '0', backgroundColor: 'var(--card-bg)', borderRadius: '12px', marginBottom: '20px', overflow: 'auto hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)', WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none' }}>
                     <style>{`.admin-tabs::-webkit-scrollbar { display: none; }`}</style>
-                    {[{key: 'open' as const, label: 'En Curso'}, {key: 'closed' as const, label: 'Cerradas'}, {key: 'caja' as const, label: 'Cierre'}, {key: 'stats' as const, label: 'Estadísticas'}].map(tab => (
+                    {[{key: 'open' as const, label: 'En Curso'}, {key: 'closed' as const, label: 'Cerradas'}, {key: 'caja' as const, label: 'Cierre'}, {key: 'stats' as const, label: 'Estadísticas'}, {key: 'products' as const, label: 'Productos'}].map(tab => (
                         <button key={tab.key} onClick={() => setAdminTab(tab.key)} style={{
                             flex: '1 0 auto', padding: '12px 10px', fontSize: 'clamp(0.7rem, 2.5vw, 0.85rem)', fontWeight: 600, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap',
                             borderBottom: adminTab === tab.key ? '3px solid var(--primary)' : '3px solid transparent',
@@ -920,6 +998,115 @@ export default function AdminPortal() {
 
                 {/* TAB: Estadísticas */}
                 {adminTab === 'stats' && <AnalyticsDashboard adminKey={adminKey} />}
+
+                {/* TAB: Productos */}
+                {adminTab === 'products' && (
+                    <div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                            <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)' }}>Menú ({products.length} productos)</div>
+                            <button onClick={openAddProduct} style={{
+                                padding: '10px 18px', background: 'var(--primary)', color: 'white', border: 'none',
+                                borderRadius: '8px', fontWeight: 700, fontSize: '0.85rem', cursor: 'pointer'
+                            }}>+ AGREGAR</button>
+                        </div>
+
+                        <div style={{ backgroundColor: 'var(--card-bg)', borderRadius: '12px', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+                                <thead>
+                                    <tr style={{ background: 'var(--surface)', borderBottom: '1px solid var(--surface-border)' }}>
+                                        <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Nombre</th>
+                                        <th style={{ padding: '10px 12px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600 }}>Categoría</th>
+                                        <th style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: 600 }}>Precio</th>
+                                        <th style={{ padding: '10px 12px', textAlign: 'center', color: 'var(--text-secondary)', fontWeight: 600 }}>Activo</th>
+                                        <th style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-secondary)', fontWeight: 600 }}></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {products.map((p: any) => (
+                                        <tr key={p.id} style={{ borderBottom: '1px solid var(--surface-border)' }}>
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-primary)', fontWeight: 500 }}>{p.nombre}</td>
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{p.categorias?.nombre || '-'}</td>
+                                            <td style={{ padding: '10px 12px', textAlign: 'right', color: 'var(--text-primary)', fontWeight: 600 }}>₡{Number(p.precio).toLocaleString()}</td>
+                                            <td style={{ padding: '10px 12px', textAlign: 'center' }}>
+                                                <span style={{
+                                                    display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%',
+                                                    background: p.disponible ? 'var(--primary)' : 'var(--danger)'
+                                                }} />
+                                            </td>
+                                            <td style={{ padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                                                <button onClick={() => openEditProduct(p)} style={{
+                                                    padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600,
+                                                    color: '#1a73e8', background: 'var(--primary-surface)', border: 'none',
+                                                    borderRadius: '4px', cursor: 'pointer', marginRight: '6px'
+                                                }}>Editar</button>
+                                                {p.disponible && (
+                                                    <button onClick={() => deleteProduct(p.id)} style={{
+                                                        padding: '4px 10px', fontSize: '0.75rem', fontWeight: 600,
+                                                        color: 'var(--danger)', background: 'var(--danger-soft, #fef2f2)', border: 'none',
+                                                        borderRadius: '4px', cursor: 'pointer'
+                                                    }}>Desactivar</button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                            {products.length === 0 && (
+                                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+                                    No hay productos. Presiona "+ AGREGAR" para crear el primero.
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {/* Product Modal */}
+                {showProductModal && (
+                    <div style={{
+                        position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)',
+                        zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px'
+                    }}>
+                        <div style={{
+                            backgroundColor: 'var(--card-bg)', borderRadius: '16px', padding: '24px',
+                            width: '100%', maxWidth: '420px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)'
+                        }}>
+                            <h3 style={{ margin: '0 0 20px', color: 'var(--text-primary)', fontSize: '1.1rem' }}>
+                                {editingProduct ? 'Editar Producto' : 'Nuevo Producto'}
+                            </h3>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                <input value={productName} onChange={e => setProductName(e.target.value)}
+                                    placeholder="Nombre del producto"
+                                    style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }} />
+                                <input type="number" value={productPrice} onChange={e => setProductPrice(e.target.value)}
+                                    placeholder="Precio en colones"
+                                    style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }} />
+                                <select value={productCategory} onChange={e => setProductCategory(e.target.value)}
+                                    style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }}>
+                                    <option value="">Seleccionar categoría</option>
+                                    {categories.map((c: any) => (
+                                        <option key={c.id} value={c.id}>{c.nombre}</option>
+                                    ))}
+                                </select>
+                                <select value={productMenu} onChange={e => setProductMenu(e.target.value)}
+                                    style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }}>
+                                    <option value="menu1">Menú 1 - Comida Rápida</option>
+                                    <option value="menu2">Menú 2 - Cafetero</option>
+                                </select>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
+                                <button onClick={() => setShowProductModal(false)} style={{
+                                    flex: 1, padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)',
+                                    background: 'var(--surface)', cursor: 'pointer', fontWeight: 600, fontSize: '0.85rem'
+                                }}>Cancelar</button>
+                                <button onClick={saveProduct} disabled={savingProduct || !productName || !productPrice || !productCategory} style={{
+                                    flex: 1, padding: '12px', borderRadius: '8px', border: 'none',
+                                    background: 'var(--primary)', color: 'white', fontWeight: 700, fontSize: '0.85rem',
+                                    cursor: savingProduct ? 'default' : 'pointer', opacity: savingProduct ? 0.7 : 1
+                                }}>{savingProduct ? 'GUARDANDO...' : 'GUARDAR'}</button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
             </div>
 

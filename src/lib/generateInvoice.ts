@@ -114,7 +114,14 @@ export async function generateInvoice(
 
   let y = MARGIN + 4;
 
-  const headerLines = ["FAST FOOD SAN VICENTE", "Cruce San Vicente, San Carlos"];
+  const headerLines = [
+    "FAST FOOD SAN VICENTE",
+    "Sharlin Maclean Vargas",
+    "Ident Física: 207960326",
+    "Tel: 6081-1275",
+    "25mts sureste de la Iglesia Católica de San Vicente",
+    "fastfoodsanvicente@gmail.com",
+  ];
   const headerReserved = (logo ? 70 : 0) + headerLines.length * LINE_HEIGHT + 8;
   const metaLines = 3;
   const metaReserved = metaLines * LINE_HEIGHT + 12;
@@ -158,7 +165,15 @@ export async function generateInvoice(
 
   drawCenteredText(ctx, "FAST FOOD SAN VICENTE", y, fontBrand);
   y += LINE_HEIGHT;
-  drawCenteredText(ctx, "Cruce San Vicente, San Carlos", y, "10px monospace", "#444");
+  drawCenteredText(ctx, "Sharlin Maclean Vargas", y, "10px monospace", "#000");
+  y += LINE_HEIGHT;
+  drawCenteredText(ctx, "Ident Física: 207960326", y, "10px monospace", "#444");
+  y += LINE_HEIGHT;
+  drawCenteredText(ctx, "Tel: 6081-1275", y, "10px monospace", "#444");
+  y += LINE_HEIGHT;
+  drawCenteredText(ctx, "25mts sureste de la Iglesia Católica de San Vicente", y, "10px monospace", "#444");
+  y += LINE_HEIGHT;
+  drawCenteredText(ctx, "fastfoodsanvicente@gmail.com", y, "10px monospace", "#444");
   y += LINE_HEIGHT;
   drawSolid(ctx, y + 4);
   y += LINE_HEIGHT;

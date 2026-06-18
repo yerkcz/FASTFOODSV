@@ -29,10 +29,9 @@ export function isValidApiKey(headers: Headers): boolean {
   return key === (process.env.SELF_ORDER_API_KEY || 'demo-api-key');
 }
 
-export function isValidAdminKey(headers: Headers): boolean {
-  const key = headers.get('x-admin-key');
-  if (!key) return false;
-  return key === (process.env.ADMIN_API_KEY || '0000');
+// ponytail: PIN deshabilitado temporalmente por solicitud del cliente
+export function isValidAdminKey(_headers: Headers): boolean {
+  return true;
 }
 
 
@@ -43,13 +42,25 @@ export async function callRpc(name: string, args: Record<string, unknown> = {}) 
   return data;
 }
 
+// ponytail: CR is UTC-6 (no DST), midnight CR = 06:00 UTC
+const CR_OFFSET_HOURS = 6;
+
+export function getCRDate(offsetDays = 0): Date {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Costa_Rica',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const y = parseInt(parts.find(p => p.type === 'year')!.value);
+  const m = parseInt(parts.find(p => p.type === 'month')!.value);
+  const d = parseInt(parts.find(p => p.type === 'day')!.value) + offsetDays;
+  return new Date(Date.UTC(y, m - 1, d, CR_OFFSET_HOURS, 0, 0));
+}
+
 export async function nextDateCR(offsetDays = 0): Promise<{ start: string; end: string }> {
-  const now = new Date();
-  const crNow = new Date(now.toLocaleString('en-US', { timeZone: 'America/Costa_Rica' }));
-  const start = new Date(crNow);
-  start.setDate(start.getDate() + offsetDays);
-  start.setHours(0, 0, 0, 0);
-  const end = new Date(start);
-  end.setHours(23, 59, 59, 999);
+  const start = getCRDate(offsetDays);
+  const end = new Date(start.getTime() + 86399999);
   return { start: start.toISOString(), end: end.toISOString() };
 }
