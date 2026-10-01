@@ -12,10 +12,15 @@ import { useEffect } from "react";
 
 let ctx: AudioContext | null = null;
 
+// Safari antiguo solo expone `webkitAudioContext`. El atributo va opcional
+// para no tocar `window` de forma insegura, manteniendo el mismo orden:
+// primero `AudioContext`, despues el prefijado, y `null` si no hay ninguno.
+type WindowConWebkit = Window & { webkitAudioContext?: typeof AudioContext };
+
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
   if (ctx) return ctx;
-  const Ctor = window.AudioContext ?? (window as any).webkitAudioContext;
+  const Ctor = window.AudioContext ?? (window as WindowConWebkit).webkitAudioContext;
   if (!Ctor) return null;
   try {
     ctx = new Ctor();

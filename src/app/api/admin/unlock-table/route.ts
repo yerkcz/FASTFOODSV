@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = getServerSupabase();
     const mesaNum = Number(mesa);
-    await (supabase.from('mesas') as any)
+    await supabase.from('mesas')
       .update({ estado: 'ocupada' })
       .eq('numero', mesaNum);
     return jsonOk({ success: true, message: `Mesa ${mesaNum} desbloqueada.` });

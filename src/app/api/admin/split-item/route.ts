@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       .from('orden_items')
       .select('id, orden_id, producto_id, nombre_producto, precio_unitario, cantidad, notas, estado_kds, listo')
       .eq('id', itemId)
-      .single() as { data: any; error: any };
+      .single();
 
     if (errRead || !original) {
       return jsonError('Item no encontrado', 404);
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     const precioUnit = Number(original.precio_unitario);
 
     // 2. UPDATE original: reducir cantidad y recalcular subtotal
-    const { error: errUpd } = await (supabase.from('orden_items') as any)
+    const { error: errUpd } = await supabase.from('orden_items')
       .update({
         cantidad: cantidadRestante,
         subtotal: precioUnit * cantidadRestante,
@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 3. INSERT nuevo item con cantidad separada
-    const { data: nuevo, error: errIns } = await (supabase.from('orden_items') as any)
+    const { data: nuevo, error: errIns } = await supabase.from('orden_items')
       .insert({
         orden_id: original.orden_id,
         producto_id: original.producto_id,
@@ -85,11 +85,11 @@ export async function POST(request: NextRequest) {
         listo: original.listo,
       })
       .select()
-      .single() as { data: any; error: any };
+      .single();
 
     if (errIns) {
       // Rollback manual del UPDATE para no dejar inconsistencia
-      await (supabase.from('orden_items') as any)
+      await supabase.from('orden_items')
         .update({
           cantidad: cantidadOriginal,
           subtotal: precioUnit * cantidadOriginal,

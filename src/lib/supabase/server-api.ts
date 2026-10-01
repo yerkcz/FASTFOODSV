@@ -1,14 +1,17 @@
-import { createClient as createSupabaseClient } from '@supabase/supabase-js';
+import { createClient as createSupabaseClient, type PostgrestError, type SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
+import type { Database } from '@/types/database';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-let cachedClient: ReturnType<typeof createSupabaseClient> | null = null;
+// Con `Database`, `.from()` devuelve filas reales y `.insert()`/`.update()`
+// aceptan el payload sin que haya que castear el builder a `any`.
+let cachedClient: SupabaseClient<Database> | null = null;
 
-export function getServerSupabase() {
+export function getServerSupabase(): SupabaseClient<Database> {
   if (!cachedClient) {
-    cachedClient = createSupabaseClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    cachedClient = createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
       auth: { autoRefreshToken: false, persistSession: false },
     });
   }
@@ -37,7 +40,13 @@ export function isValidAdminKey(_headers: Headers): boolean {
 
 export async function callRpc(name: string, args: Record<string, unknown> = {}) {
   const supabase = getServerSupabase();
-  const { data, error } = await (supabase.rpc as any)(name, args);
+  // `name` llega como string plano y `Database` solo conoce las RPC declaradas
+  // en `@/types/database`. El casteo vive acá, en un solo lugar.
+  const rpc = supabase.rpc as (
+    n: string,
+    a: Record<string, unknown>,
+  ) => PromiseLike<{ data: unknown; error: PostgrestError | null }>;
+  const { data, error } = await rpc(name, args);
   if (error) throw error;
   return data;
 }

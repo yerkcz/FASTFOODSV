@@ -18,9 +18,9 @@ export async function POST(request: NextRequest) {
       .from('mesas')
       .select('id')
       .eq('numero', mesaNumero)
-      .single() as { data: any; error: any };
+      .single();
 
-    const { data: orden, error: ordenErr } = await (supabase.from('ordenes') as any)
+    const { data: orden, error: ordenErr } = await supabase.from('ordenes')
       .insert({
         mesa_id: mesaRow?.id,
         mesa_numero: mesaNumero,
@@ -30,11 +30,11 @@ export async function POST(request: NextRequest) {
         estado: 'abierta',
       })
       .select()
-      .single() as { data: any; error: any };
+      .single();
     if (ordenErr) throw ordenErr;
 
     if (!isLlevar) {
-      await (supabase.from('mesas') as any)
+      await supabase.from('mesas')
         .update({ estado: 'ocupada', orden_actual_id: orden.id })
         .eq('numero', mesaNumero);
     }
@@ -44,11 +44,11 @@ export async function POST(request: NextRequest) {
         .from('productos')
         .select('id, precio, nombre')
         .eq('nombre', it.name)
-        .maybeSingle() as { data: any; error: any };
+        .maybeSingle();
       if (!prod) continue;
       const precio = Number(prod.precio);
       const cant = Number(it.quantity) || 1;
-      await (supabase.from('orden_items') as any).insert({
+      await supabase.from('orden_items').insert({
         orden_id: orden.id,
         producto_id: prod.id,
         nombre_producto: prod.nombre,

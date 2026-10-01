@@ -26,7 +26,7 @@ export async function POST(request: NextRequest) {
       .from('orden_items')
       .select('id, orden_id')
       .eq('id', itemId)
-      .single() as { data: any; error: any };
+      .single();
 
     if (errItem || !item) return jsonError('Item no encontrado', 404);
     if (item.orden_id === targetOrdenNu) {
@@ -37,13 +37,13 @@ export async function POST(request: NextRequest) {
       .from('ordenes')
       .select('id, estado, mesa_numero')
       .eq('id', item.orden_id)
-      .single() as { data: any; error: any };
+      .single();
 
     const { data: ordenDestino } = await supabase
       .from('ordenes')
       .select('id, estado, mesa_numero')
       .eq('id', targetOrdenNu)
-      .single() as { data: any; error: any };
+      .single();
 
     if (!ordenOrigen || !ordenDestino) {
       return jsonError('Orden origen o destino no existe', 404);
@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
     const isCrossMesa = ordenOrigen.mesa_numero !== ordenDestino.mesa_numero;
 
-    const { error } = await (supabase.from('orden_items') as any)
+    const { error } = await supabase.from('orden_items')
       .update({
         orden_id: targetOrdenNu,
         transferido_desde: item.orden_id,
@@ -67,10 +67,10 @@ export async function POST(request: NextRequest) {
     const { count: remaining } = await supabase
       .from('orden_items')
       .select('id', { count: 'exact', head: true })
-      .eq('orden_id', item.orden_id) as { count: number | null; error: any };
+      .eq('orden_id', item.orden_id);
 
     if (remaining === 0) {
-      await (supabase.from('ordenes') as any).update({ estado: 'cerrada', closed_at: new Date().toISOString() }).eq('id', item.orden_id);
+      await supabase.from('ordenes').update({ estado: 'cerrada', closed_at: new Date().toISOString() }).eq('id', item.orden_id);
     }
 
     return jsonOk({
@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       mesa_origen: ordenOrigen.mesa_numero,
       mesa_destino: ordenDestino.mesa_numero,
     });
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error('Error POST /api/admin/reassign-item:', err);
     return jsonError('Error al reasignar', 500);
   }

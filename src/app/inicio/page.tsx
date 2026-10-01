@@ -85,9 +85,16 @@ function IconAdmin() {
 export default function InicioPortal() {
   const [theme, setTheme] = useState<Theme>("dark");
 
+  // Restaura el tema guardado UNA sola vez tras la hidratación (deps []).
+  //
+  // Se lee en el effect a propósito: el estado arranca en "dark" porque eso es
+  // lo que pinta el SSR, y cambiarlo en el primer render del cliente sería un
+  // mismatch de hidratación. Es el caso "restore from external store", no el
+  // de renders en cascada que busca la regla.
   useEffect(() => {
     const stored = (typeof window !== "undefined" ? localStorage.getItem(STORAGE_THEME) : null) as Theme | null;
     const initial: Theme = stored === "light" ? "light" : "dark";
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setTheme(initial);
     applyTheme(initial);
   }, []);

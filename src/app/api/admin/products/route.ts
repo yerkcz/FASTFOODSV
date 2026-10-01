@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { getServerSupabase, isValidAdminKey, jsonError, jsonOk } from "@/lib/supabase/server-api";
 
 export async function GET(request: NextRequest) {
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
 
   const { data, error } = await supabase
     .from("productos")
-    .insert({ nombre, precio: Number(precio), categoria_id, menu_origen: menu_origen || "menu1" } as any)
+    .insert({ nombre, precio: Number(precio), categoria_id, menu_origen: menu_origen || "menu1" })
     .select()
     .single();
 

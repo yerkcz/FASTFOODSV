@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
+import type { OrdenRow, ProductoRow, PostgrestError } from '@/types/db';
 
 export async function POST(request: NextRequest) {
   try {
@@ -16,7 +17,7 @@ export async function POST(request: NextRequest) {
       .from('ordenes')
       .select('id, estado')
       .eq('id', orden_nu)
-      .single() as { data: any; error: any };
+      .single() as { data: Pick<OrdenRow, 'id' | 'estado'> | null; error: PostgrestError | null };
 
     if (errOrden || !orden) return jsonError('Orden no encontrada', 404);
     if (orden.estado !== 'abierta') {
@@ -28,11 +29,11 @@ export async function POST(request: NextRequest) {
         .from('productos')
         .select('id, precio, nombre')
         .eq('nombre', it.name)
-        .maybeSingle() as { data: any; error: any };
+        .maybeSingle() as { data: Pick<ProductoRow, 'id' | 'precio' | 'nombre'> | null; error: PostgrestError | null };
       if (!prod) continue;
       const precio = Number(prod.precio);
       const cant = Number(it.quantity) || 1;
-      await (supabase.from('orden_items') as any).insert({
+      await supabase.from('orden_items').insert({
         orden_id: orden_nu,
         producto_id: prod.id,
         nombre_producto: prod.nombre,

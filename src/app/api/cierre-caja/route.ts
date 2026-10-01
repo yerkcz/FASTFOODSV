@@ -48,8 +48,13 @@ export async function POST(request: NextRequest) {
     });
 
     return jsonOk(resultado);
-  } catch (err: any) {
+  } catch (err: unknown) {
     console.error("Error POST /api/cierre-caja:", err);
-    return jsonError(err?.message || "Error al cerrar caja", 500);
+    // `err` es `unknown`: se le pide el tipo del campo que se lee para que la
+    // expresión en runtime siga siendo exactamente `err?.message || fallback`.
+    // (No se usa `instanceof Error`: Supabase lanza objetos PostgREST que
+    // traen `message` sin ser `Error`.)
+    const mensaje = (err as { message?: unknown })?.message || "Error al cerrar caja";
+    return jsonError(mensaje as string, 500);
   }
 }

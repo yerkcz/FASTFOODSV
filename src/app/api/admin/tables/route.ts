@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getServerSupabase, jsonError, isValidAdminKey } from '@/lib/supabase/server-api';
+import type { OrdenRow } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
+
+/** Una orden dentro del grupo de mesa (es lo que se serializa a JSON). */
+type OrdenEnMesa = {
+  orden_nu: string;
+  cliente: string | null;
+  fecha: string | null;
+  estado: OrdenRow['estado'];
+  total: number;
+  tipo: OrdenRow['tipo'];
+};
+
+/** Agrupación de las órdenes abiertas por número de mesa. */
+type MesaGroup = {
+  mesa: string;
+  ordenes: OrdenEnMesa[];
+  total_mesa: number;
+  fecha_primera: string | null;
+};
 
 export async function GET(request: NextRequest) {
   try {
@@ -15,8 +34,10 @@ export async function GET(request: NextRequest) {
       .order('opened_at', { ascending: false });
     if (error) throw error;
 
-    const groupsMap = new Map<number, any>();
-    for (const o of (data as any[]) || []) {
+    // `mesa_numero` es nullable en `ordenes` (p. ej. pedidos "para llevar"):
+    // la clave del Map lo refleja para no cambiar cómo se agrupan hoy.
+    const groupsMap = new Map<number | null, MesaGroup>();
+    for (const o of data || []) {
       const totalOrder = Number(o.total || 0);
       if (totalOrder <= 0) continue;
       const key = o.mesa_numero;
@@ -28,7 +49,8 @@ export async function GET(request: NextRequest) {
           fecha_primera: o.opened_at,
         });
       }
-      const g = groupsMap.get(key);
+      // Ya existe o se acaba de crear arriba: siempre hay grupo.
+      const g = groupsMap.get(key)!;
       g.ordenes.push({
         orden_nu: o.id,
         cliente: o.cliente_nombre,

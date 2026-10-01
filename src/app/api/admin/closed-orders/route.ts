@@ -1,7 +1,21 @@
 import { NextRequest } from 'next/server';
 import { getServerSupabase, jsonError, jsonOk, isValidAdminKey, nextDateCR } from '@/lib/supabase/server-api';
+import type { ComprobanteRow, PostgrestError, PagoRow } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Comprobante del día con la orden embebida (`ordenes:orden_id`).
+ * El select anidado NO lo tipa supabase (el elemento queda `never`), así que
+ * el builder se castea contra este tipo real en vez de quedar sin tipar.
+ */
+type ComprobanteDelDia = ComprobanteRow & {
+  ordenes: {
+    mesa_numero: number | null;
+    cliente_nombre: string | null;
+    tipo: 'mesa' | 'llevar';
+  } | null;
+};
 
 /**
  * GET /api/admin/closed-orders
@@ -25,7 +39,7 @@ export async function GET(request: NextRequest) {
     const supabase = getServerSupabase();
     const { start, end } = await nextDateCR(0);
 
-    const { data: comprobantes, error } = await supabase
+    const { data: comprobantes, error } = (await supabase
       .from('comprobantes')
       .select(`
         id,
@@ -45,24 +59,29 @@ export async function GET(request: NextRequest) {
       `)
       .gte('created_at', start)
       .lte('created_at', end)
-      .order('created_at', { ascending: false }) as { data: any[]; error: any };
+      .order('created_at', { ascending: false })) as {
+      data: ComprobanteDelDia[] | null;
+      error: PostgrestError | null;
+    };
 
     if (error) throw error;
 
     const pagoIds = (comprobantes || [])
-      .map((c: any) => c.pago_id)
-      .filter(Boolean);
-    let pagosById = new Map<string, any>();
+      .map((c) => c.pago_id)
+      .filter((id): id is string => Boolean(id));
+    const pagosById = new Map<string, Pick<PagoRow, 'id' | 'forma_pago' | 'monto' | 'monto_recibido' | 'vuelto'>>();
     if (pagoIds.length > 0) {
       const { data: pagosData } = await supabase
         .from('pagos')
         .select('id, forma_pago, monto, monto_recibido, vuelto')
-        .in('id', pagoIds) as { data: any[] | null };
-      (pagosData || []).forEach((p: any) => pagosById.set(p.id, p));
+        .in('id', pagoIds);
+      (pagosData || []).forEach((p) => pagosById.set(p.id, p));
     }
 
-    const orders = (comprobantes || []).map((c: any) => {
-      const pago = pagosById.get(c.pago_id);
+    const orders = (comprobantes || []).map((c) => {
+      // `pago_id` es nullable; el Map solo tiene claves string, así que un null
+      // nunca matchea (mismo resultado que `get(null)` en un Map<string, ...>).
+      const pago = c.pago_id ? pagosById.get(c.pago_id) : undefined;
       const orden = Array.isArray(c.ordenes) ? c.ordenes[0] : c.ordenes;
       return {
         comprobante_id: c.id,

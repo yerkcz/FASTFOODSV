@@ -24,8 +24,8 @@ export async function GET(request: NextRequest) {
       .gte('created_at', prev.start)
       .lte('created_at', prev.end);
 
-    const ventas = (comps || []).reduce((s: number, c: any) => s + Number(c.total || 0), 0);
-    const prevVentas = (prevComps || []).reduce((s: number, c: any) => s + Number(c.total || 0), 0);
+    const ventas = (comps || []).reduce((s: number, c) => s + Number(c.total || 0), 0);
+    const prevVentas = (prevComps || []).reduce((s: number, c) => s + Number(c.total || 0), 0);
     const numOrdenes = comps?.length || 0;
     const prevOrdenes = prevComps?.length || 0;
     const ticketProm = numOrdenes > 0 ? ventas / numOrdenes : 0;
@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
     const ordenesPorDia = numOrdenes / days;
 
     const dailyCounts = new Map<string, number>();
-    for (const c of (comps || []) as any[]) {
-      const day = (c.created_at as string).slice(0, 10);
+    for (const c of comps || []) {
+      const day = c.created_at.slice(0, 10);
       dailyCounts.set(day, (dailyCounts.get(day) || 0) + 1);
     }
     const counts = Array.from(dailyCounts.values());

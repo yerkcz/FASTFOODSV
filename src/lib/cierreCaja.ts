@@ -1,3 +1,10 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/types/database";
+import type { PagoRow } from "@/types/db";
+
+/** Mismo cliente que devuelve `getServerSupabase()`. */
+type Supabase = SupabaseClient<Database>;
+
 export function crNow(): Date {
   return new Date(new Date().toLocaleString("en-US", { timeZone: "America/Costa_Rica" }));
 }
@@ -21,7 +28,7 @@ export type CierreDia = {
   total_descuentos: number;
 };
 
-export async function fetchCierreDia(supabase: any, fecha: string): Promise<CierreDia> {
+export async function fetchCierreDia(supabase: Supabase, fecha: string): Promise<CierreDia> {
   const start = new Date(`${fecha}T00:00:00-06:00`);
   const end = new Date(`${fecha}T23:59:59.999-06:00`);
   const startIso = start.toISOString();
@@ -36,16 +43,16 @@ export async function fetchCierreDia(supabase: any, fecha: string): Promise<Cier
     .lte("created_at", endIso);
 
   if (error) throw error;
-  const comps = (comprobantes as any[]) || [];
+  const comps = comprobantes || [];
 
-  const pagoIds = comps.map((c) => c.pago_id).filter(Boolean);
-  let pagosById = new Map<string, any>();
+  const pagoIds = comps.map((c) => c.pago_id).filter((id): id is string => Boolean(id));
+  const pagosById = new Map<string, Pick<PagoRow, "id" | "forma_pago" | "monto">>();
   if (pagoIds.length > 0) {
     const { data: pagosData } = await supabase
       .from("pagos")
       .select("id, forma_pago, monto")
       .in("id", pagoIds);
-    (pagosData || []).forEach((p: any) => pagosById.set(p.id, p));
+    (pagosData || []).forEach((p) => pagosById.set(p.id, p));
   }
 
   let total_ingresos = 0;
@@ -54,10 +61,12 @@ export async function fetchCierreDia(supabase: any, fecha: string): Promise<Cier
   let total_tarjeta = 0;
   let total_sinpe = 0;
 
-  comps.forEach((c: any) => {
+  comps.forEach((c) => {
     total_ingresos += Number(c.total || 0);
     if (Number(c.descuento || 0) > 0) total_descuentos += Number(c.descuento);
-    const pago = pagosById.get(c.pago_id);
+    // `pago_id` puede ser null: Map.get(null) siempre da undefined, lo mismo
+    // que este ternario (los ids nunca son la cadena "null").
+    const pago = c.pago_id ? pagosById.get(c.pago_id) : undefined;
     if (!pago) return;
     const fp = (pago.forma_pago || "").toLowerCase();
     const m = Number(pago.monto || 0);
@@ -79,7 +88,7 @@ export async function fetchCierreDia(supabase: any, fecha: string): Promise<Cier
   };
 }
 
-export async function cierreExistente(supabase: any, fecha: string) {
+export async function cierreExistente(supabase: Supabase, fecha: string) {
   const { data } = await supabase
     .from("cierres_caja")
     .select("*")
@@ -89,7 +98,7 @@ export async function cierreExistente(supabase: any, fecha: string) {
 }
 
 export async function ejecutarCierre(
-  supabase: any,
+  supabase: Supabase,
   args: {
     fecha: string;
     cajero_id?: string | null;

@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
+import type { OrdenRow, PagoRow } from '@/types/db';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,7 +40,7 @@ export async function GET(
       .from('ordenes')
       .select('id, cliente_nombre')
       .eq('mesa_numero', mesaNum)
-      .in('estado', ['cerrada', 'abierta']) as { data: any[] | null };
+      .in('estado', ['cerrada', 'abierta']);
 
     if (!ordenes || ordenes.length === 0) {
       return jsonOk({ mesa: mesaNum, fecha: today, comprobantes: [] });
@@ -56,27 +57,29 @@ export async function GET(
       .in('orden_id', ordenIds)
       .gte('created_at', start)
       .lte('created_at', end)
-      .order('created_at', { ascending: true }) as { data: any[] | null };
+      .order('created_at', { ascending: true });
 
     if (!comprobantes || comprobantes.length === 0) {
       return jsonOk({ mesa: mesaNum, fecha: today, comprobantes: [] });
     }
 
-    const pagoIds = comprobantes.map((c) => c.pago_id).filter(Boolean);
-    let pagosById = new Map<string, any>();
+    // `filter(Boolean)` NO estrecha el tipo en TS, y `.in()` exige
+    // `readonly string[]` mientras que `pago_id` es `string | null`.
+    const pagoIds = comprobantes.map((c) => c.pago_id).filter((id): id is string => Boolean(id));
+    const pagosById = new Map<string, Pick<PagoRow, 'id' | 'forma_pago' | 'monto' | 'monto_recibido' | 'vuelto'>>();
     if (pagoIds.length > 0) {
       const { data: pData } = await supabase
         .from('pagos')
         .select('id, forma_pago, monto, monto_recibido, vuelto')
-        .in('id', pagoIds) as { data: any[] | null };
-      (pData || []).forEach((p: any) => pagosById.set(p.id, p));
+        .in('id', pagoIds);
+      (pData || []).forEach((p) => pagosById.set(p.id, p));
     }
 
-    const ordenesById = new Map(ordenes.map((o: any) => [o.id, o]));
+    const ordenesById = new Map<string, Pick<OrdenRow, 'id' | 'cliente_nombre'>>(ordenes.map((o) => [o.id, o]));
 
-    const result = comprobantes.map((c: any) => {
-      const pago = pagosById.get(c.pago_id);
-      const orden = ordenesById.get(c.orden_id);
+    const result = comprobantes.map((c) => {
+      const pago = c.pago_id ? pagosById.get(c.pago_id) : undefined;
+      const orden = c.orden_id ? ordenesById.get(c.orden_id) : undefined;
       return {
         comprobante_id: c.id,
         numero: c.numero,

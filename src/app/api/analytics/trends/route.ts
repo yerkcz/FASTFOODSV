@@ -30,12 +30,12 @@ export async function GET(request: NextRequest) {
       .lte('created_at', end);
 
     // Build payment lookup
-    const pagoMap = new Map<any, string>((pagos || []).map((p: any) => [p.id, p.forma_pago]));
+    const pagoMap = new Map<string, string>((pagos || []).map((p) => [p.id, p.forma_pago]));
 
     // ── Time Series ──
     const dayMap = new Map<string, number>();
-    for (const c of (comps || []) as any[]) {
-      const day = (c.created_at as string).slice(0, 10);
+    for (const c of comps || []) {
+      const day = c.created_at.slice(0, 10);
       dayMap.set(day, (dayMap.get(day) || 0) + Number(c.total || 0));
     }
     const timeSeries = Array.from(dayMap.entries())
@@ -44,7 +44,7 @@ export async function GET(request: NextRequest) {
 
     // ── Golden Hours ──
     const hourMap = new Map<number, number>();
-    for (const c of (comps || []) as any[]) {
+    for (const c of comps || []) {
       const h = new Date(c.created_at).getHours();
       hourMap.set(h, (hourMap.get(h) || 0) + Number(c.total || 0));
     }
@@ -54,8 +54,10 @@ export async function GET(request: NextRequest) {
 
     // ── Payments ──
     const payMap = new Map<string, number>();
-    for (const c of (comps || []) as any[]) {
-      const metodo = pagoMap.get(c.pago_id) || 'No registrado';
+    for (const c of comps || []) {
+      // `pago_id` es anulable: el cast es solo de tipos (un `get(null)` ya
+      // devolvía `undefined`, igual que ahora), así que no toca el runtime.
+      const metodo = pagoMap.get(c.pago_id as string) || 'No registrado';
       payMap.set(metodo, (payMap.get(metodo) || 0) + Number(c.total || 0));
     }
     const payments = Array.from(payMap.entries())
@@ -64,7 +66,7 @@ export async function GET(request: NextRequest) {
 
     // ── Weekdays ──
     const dayOfWeekMap = new Map<number, number>();
-    for (const c of (comps || []) as any[]) {
+    for (const c of comps || []) {
       const dw = new Date(c.created_at).getDay();
       dayOfWeekMap.set(dw, (dayOfWeekMap.get(dw) || 0) + Number(c.total || 0));
     }
@@ -74,12 +76,14 @@ export async function GET(request: NextRequest) {
       .sort((a, b) => a.dia_num - b.dia_num);
 
     // ── Table Turnover ──
-    const tableTurnover = (ordenes || []).map((o: any) => {
+    const tableTurnover = (ordenes || []).map((o) => {
       const opened = new Date(o.opened_at || o.created_at).getTime();
       const closed = new Date(o.created_at).getTime();
       const mins = Math.round((closed - opened) / 60000);
-      return { mesa: o.mesa_numero, mins_promedio: Math.max(0, mins) };
-    }).filter((t: any) => t.mins_promedio > 0);
+      // `mesa_numero` es anulable en BD; el cast es de tipos puro (el valor
+      // que llega al JSON es exactamente el mismo que antes).
+      return { mesa: o.mesa_numero as number, mins_promedio: Math.max(0, mins) };
+    }).filter((t) => t.mins_promedio > 0);
 
     // Aggregate by table
     const tableMap = new Map<number, number[]>();

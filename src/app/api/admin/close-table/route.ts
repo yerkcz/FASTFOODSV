@@ -1,11 +1,22 @@
 import { NextRequest } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getServerSupabase, jsonError, jsonOk, isValidAdminKey, getCRDate } from '@/lib/supabase/server-api';
+import type { Database } from '@/types/database';
+
+/** Item tal como se persiste en `comprobantes.items_snapshot`. */
+type ItemSnapshot = {
+  nombre: string;
+  cantidad: number;
+  precio_unitario: number;
+  subtotal: number;
+  notas: string | null;
+};
 
 async function fetchItemsSnapshot(
-  supabase: any,
+  supabase: SupabaseClient<Database>,
   ordenId: string,
   restrictToIds?: string[]
-): Promise<any[]> {
+): Promise<ItemSnapshot[]> {
   // Si hay restrictToIds, leer SOLO por id (los items reasignados ya viven
   // en la orden destino — leer por orden_id filtraría incorrectamente).
   let q = supabase
@@ -18,7 +29,7 @@ async function fetchItemsSnapshot(
     q = q.eq('orden_id', ordenId);
   }
   const { data } = await q;
-  return (data || []).map((i: any) => ({
+  return (data || []).map((i) => ({
     nombre: i.nombre_producto,
     cantidad: Number(i.cantidad),
     precio_unitario: Number(i.precio_unitario),
@@ -36,14 +47,14 @@ async function fetchItemsSnapshot(
  * no solo los 'cancelado'. Si este helper no replica eso, el guard de abajo
  * daria 409 en ordenes perfectamente sanas.
  */
-async function sumaRealOrden(supabase: any, ordenId: string): Promise<number> {
+async function sumaRealOrden(supabase: SupabaseClient<Database>, ordenId: string): Promise<number> {
   const { data } = await supabase
     .from('orden_items')
     .select('subtotal, estado_kds')
-    .eq('orden_id', ordenId) as { data: any[]; error: any };
+    .eq('orden_id', ordenId);
   return (data || [])
-    .filter((i: any) => i.estado_kds !== 'cancelado' && i.estado_kds != null)
-    .reduce((s: number, i: any) => s + Number(i.subtotal || 0), 0);
+    .filter((i) => i.estado_kds !== 'cancelado' && i.estado_kds != null)
+    .reduce((s, i) => s + Number(i.subtotal || 0), 0);
 }
 
 /**
@@ -51,12 +62,12 @@ async function sumaRealOrden(supabase: any, ordenId: string): Promise<number> {
  * hace varios inserts sin transaccion (Supabase REST no las soporta aqui);
  * sin esto un fallo a medio camino deja dinero cobrado sin comprobante.
  */
-async function rollback(supabase: any, pagos: string[], comprobantes: string[]) {
+async function rollback(supabase: SupabaseClient<Database>, pagos: string[], comprobantes: string[]) {
   if (comprobantes.length > 0) {
-    await (supabase.from('comprobantes') as any).delete().in('id', comprobantes);
+    await supabase.from('comprobantes').delete().in('id', comprobantes);
   }
   if (pagos.length > 0) {
-    await (supabase.from('pagos') as any).delete().in('id', pagos);
+    await supabase.from('pagos').delete().in('id', pagos);
   }
 }
 
@@ -82,8 +93,8 @@ export async function POST(request: NextRequest) {
         .from('ordenes')
         .select('id')
         .eq('mesa_numero', mesaNum)
-        .eq('estado', 'abierta') as { data: any[]; error: any };
-      if (ordenes) ordenesACerrar = ordenes.map((o: any) => o.id);
+        .eq('estado', 'abierta');
+      if (ordenes) ordenesACerrar = ordenes.map((o) => o.id);
     } else {
       const ordenNu = body.orden_nu || body.ordenNu;
       if (!ordenNu) return jsonError('orden_nu requerido');
@@ -97,16 +108,16 @@ export async function POST(request: NextRequest) {
     const { data: estadoOrdenes, error: errEstado } = await supabase
       .from('ordenes')
       .select('id, estado, total')
-      .in('id', ordenesACerrar) as { data: any[]; error: any };
+      .in('id', ordenesACerrar);
     if (errEstado) throw errEstado;
 
     const noEncontradas = ordenesACerrar.filter(
-      (id) => !estadoOrdenes?.some((o: any) => o.id === id)
+      (id) => !estadoOrdenes?.some((o) => o.id === id)
     );
     if (noEncontradas.length > 0) return jsonError('La orden no existe', 404);
 
     const yaCerradas = ordenesACerrar.filter(
-      (id) => estadoOrdenes?.find((o: any) => o.id === id)?.estado !== 'abierta'
+      (id) => estadoOrdenes?.find((o) => o.id === id)?.estado !== 'abierta'
     );
     if (yaCerradas.length > 0) return jsonError('La orden ya fue cobrada', 409);
 
@@ -143,7 +154,7 @@ export async function POST(request: NextRequest) {
     for (const ordenId of ordenesACerrar) {
       const suma = await sumaRealOrden(supabase, ordenId);
       montosReales[ordenId] = suma;
-      const guardado = Number(estadoOrdenes?.find((o: any) => o.id === ordenId)?.total ?? 0);
+      const guardado = Number(estadoOrdenes?.find((o) => o.id === ordenId)?.total ?? 0);
       if (Math.abs(suma - guardado) > 0.01) {
         desviados.push(ordenId);
         console.error(
@@ -155,7 +166,7 @@ export async function POST(request: NextRequest) {
     if (desviados.length > 0) {
       const detalle = desviados
         .map((id) => {
-          const guardado = Number(estadoOrdenes?.find((o: any) => o.id === id)?.total ?? 0);
+          const guardado = Number(estadoOrdenes?.find((o) => o.id === id)?.total ?? 0);
           return `${id.slice(0, 8)}: total ₡${guardado} vs items ₡${montosReales[id]}`;
         })
         .join(' | ');
@@ -187,9 +198,9 @@ export async function POST(request: NextRequest) {
     const getNextComprobante = async (): Promise<{ fecha: string; numero: number }> => {
       const fecha = getCRDate().toISOString().slice(0, 10);
       // ponytail: `supabase.rpc` no tiene tipos generados para esta DB, casteo.
-      const { data, error } = await (supabase.rpc as any)('get_siguiente_numero_comprobante', {
+      const { data, error } = await supabase.rpc('get_siguiente_numero_comprobante', {
         p_fecha: fecha,
-      }) as { data: unknown; error: any };
+      });
       if (error) {
         throw new Error(`No se pudo generar el consecutivo del comprobante: ${error.message}`);
       }
@@ -200,9 +211,9 @@ export async function POST(request: NextRequest) {
     };
 
     const closeOrden = async (ordenId: string) => {
-      const { error } = await (supabase.from('ordenes') as any)
+      const { error } = await supabase.from('ordenes')
         .update({ estado: 'cerrada', closed_at: new Date().toISOString() })
-        .eq('id', ordenId) as { error: any };
+        .eq('id', ordenId);
       if (error) throw new Error(`No se pudo cerrar la orden ${ordenId}: ${error.message}`);
     };
 
@@ -210,7 +221,7 @@ export async function POST(request: NextRequest) {
       const { data: paidItems } = await supabase
         .from('orden_items')
         .select('id, orden_id, subtotal')
-        .in('id', itemIds) as { data: any[]; error: any };
+        .in('id', itemIds);
 
       if (!paidItems || paidItems.length === 0) {
         return jsonError('Ninguno de los items seleccionados existe en la base de datos', 404);
@@ -222,7 +233,7 @@ export async function POST(request: NextRequest) {
       // item_ids viene del cliente. Sin este filtro, mandar ids de otra mesa
       // borraria esos items SIN generar pago ni comprobante.
       const fueraDeAlcance = (paidItems || []).filter(
-        (it: any) => !ordenesACerrar.includes(String(it.orden_id))
+        (it) => !ordenesACerrar.includes(String(it.orden_id))
       );
       if (fueraDeAlcance.length > 0) {
         return jsonError('Items seleccionados no pertenecen a la mesa u orden indicada', 400);
@@ -231,7 +242,7 @@ export async function POST(request: NextRequest) {
       const { data: allItems } = await supabase
         .from('orden_items')
         .select('id, orden_id')
-        .in('orden_id', ordenesACerrar) as { data: any[]; error: any };
+        .in('orden_id', ordenesACerrar);
 
       const itemsByOrden: Record<string, { id: string; subtotal: number }[]> = {};
       for (const it of paidItems || []) {
@@ -246,7 +257,7 @@ export async function POST(request: NextRequest) {
         allItemsCountByOrden[oid] = (allItemsCountByOrden[oid] || 0) + 1;
       }
 
-      const montoTotalPagado = (paidItems || []).reduce((s: number, i: any) => s + Number(i.subtotal || 0), 0);
+      const montoTotalPagado = (paidItems || []).reduce((s, i) => s + Number(i.subtotal || 0), 0);
       const cambioGlobal = montoRecibido > montoTotalPagado ? montoRecibido - montoTotalPagado : 0;
       const ordenesConPago = ordenesACerrar.filter(oid => (itemsByOrden[oid]?.length || 0) > 0);
       const ordenesQuedanCerradas: string[] = [];
@@ -258,7 +269,7 @@ export async function POST(request: NextRequest) {
         const recibidoOrden = isUltimaConPago && montoRecibido > 0 ? montoRecibido : null;
         const vueltoOrden = isUltimaConPago ? cambioGlobal : 0;
 
-        const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
+        const { data: pagoRow, error: pagoErr } = await supabase.from('pagos')
           .insert({
             orden_id: ordenId,
             forma_pago: formaPago,
@@ -267,13 +278,13 @@ export async function POST(request: NextRequest) {
             vuelto: vueltoOrden,
           })
           .select()
-          .single() as { data: any; error: any };
+          .single();
         if (pagoErr) throw pagoErr;
         pagosInsertados.push(pagoRow.id);
 
         const snapshot = await fetchItemsSnapshot(supabase, ordenId, items.map((i) => i.id));
         const comp = await getNextComprobante();
-        const { data: compRow, error: compErr } = await (supabase.from('comprobantes') as any)
+        const { data: compRow, error: compErr } = await supabase.from('comprobantes')
           .insert({
             numero: comp.numero,
             fecha: comp.fecha,
@@ -284,7 +295,7 @@ export async function POST(request: NextRequest) {
             items_snapshot: snapshot,
           })
           .select('id')
-          .single() as { data: any; error: any };
+          .single();
         if (compErr) {
           await rollback(supabase, pagosInsertados, comprobantesInsertados);
           return jsonError(`Error guardando el comprobante: ${compErr.message}`, 500);
@@ -298,7 +309,7 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const { error: errDelete } = await (supabase.from('orden_items') as any)
+      const { error: errDelete } = await supabase.from('orden_items')
         .delete()
         .in('id', itemIds);
       if (errDelete) {
@@ -320,11 +331,11 @@ export async function POST(request: NextRequest) {
       // la verdad de terreno y no a un campo que mantiene la DB por su cuenta.
       const lista = ordenesACerrar.map((id) => ({ id, total: montosReales[id] ?? 0 }));
 
-      const totalMesa = lista.reduce((s: number, o: any) => s + Number(o.total || 0), 0);
+      const totalMesa = lista.reduce((s, o) => s + Number(o.total || 0), 0);
       const cambioGlobal = montoRecibido > totalMesa ? montoRecibido - totalMesa : 0;
 
-      const ordenesConTotal = lista.filter((o: any) => Number(o.total || 0) > 0);
-      const ordenesVacias = lista.filter((o: any) => Number(o.total || 0) <= 0);
+      const ordenesConTotal = lista.filter((o) => Number(o.total || 0) > 0);
+      const ordenesVacias = lista.filter((o) => Number(o.total || 0) <= 0);
       for (const orden of ordenesVacias) {
         await closeOrden(String(orden.id));
       }
@@ -336,7 +347,7 @@ export async function POST(request: NextRequest) {
         const recibidoOrden = isUltima && montoRecibido > 0 ? montoRecibido : null;
         const vueltoOrden = isUltima ? cambioGlobal : 0;
 
-        const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
+        const { data: pagoRow, error: pagoErr } = await supabase.from('pagos')
           .insert({
             orden_id: ordenId,
             forma_pago: formaPago,
@@ -345,12 +356,12 @@ export async function POST(request: NextRequest) {
             vuelto: vueltoOrden,
           })
           .select()
-          .single() as { data: any; error: any };
+          .single();
         if (pagoErr) throw pagoErr;
         pagosInsertados.push(pagoRow.id);
 
         const comp = await getNextComprobante();
-        const { data: compRow, error: compErr } = await (supabase.from('comprobantes') as any)
+        const { data: compRow, error: compErr } = await supabase.from('comprobantes')
           .insert({
             numero: comp.numero,
             fecha: comp.fecha,
@@ -361,7 +372,7 @@ export async function POST(request: NextRequest) {
             items_snapshot: await fetchItemsSnapshot(supabase, ordenId),
           })
           .select('id')
-          .single() as { data: any; error: any };
+          .single();
         if (compErr) {
           await rollback(supabase, pagosInsertados, comprobantesInsertados);
           return jsonError(`Error guardando el comprobante: ${compErr.message}`, 500);
@@ -377,17 +388,17 @@ export async function POST(request: NextRequest) {
       .from('ordenes')
       .select('mesa_numero, tipo')
       .eq('id', ordenRef)
-      .single() as { data: any; error: any };
+      .single();
 
     if (orden?.tipo === 'mesa' && orden.mesa_numero) {
       const { count } = await supabase
         .from('ordenes')
         .select('id', { count: 'exact', head: true })
         .eq('mesa_numero', orden.mesa_numero)
-        .eq('estado', 'abierta') as { count: number | null; error: any };
+        .eq('estado', 'abierta');
 
       if (!count || count === 0) {
-        await (supabase.from('mesas') as any)
+        await supabase.from('mesas')
           .update({ estado: 'libre', orden_actual_id: null })
           .eq('numero', orden.mesa_numero);
       }

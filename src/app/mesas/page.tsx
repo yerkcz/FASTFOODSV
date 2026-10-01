@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useCallback, useRef } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatTime, getTimeColor, getTimeBg, getElapsedMins, getUrgencyBadge, getElapsedLabel } from "@/lib/timeUtils";
 import { formatColones } from "@/lib/format";
@@ -28,6 +27,26 @@ type OrderItem = {
     FechaRegistro: string;
 };
 
+/** Producto tal como lo devuelve /api/menu. */
+type MenuProduct = {
+    id: string;
+    name: string;
+    category: string;
+    price: number;
+    menu: string;
+};
+
+/**
+ * Producto del menu + cantidades de la seleccion del modal.
+ * El alta guarda `notes` pero el submit lee `notas` (que nadie setea, asi que
+ * siempre es `undefined` y termina enviando ""), por eso van las dos.
+ */
+type SelectedProduct = MenuProduct & {
+    quantity: number;
+    notes: string;
+    notas?: string;
+};
+
 function stripMesaPrefix(s: string | null | undefined): string {
     if (!s) return '';
     const noPrefix = s.replace(/^(?:Mesa\s*)?\d+\s*-\s*/i, '');
@@ -47,9 +66,9 @@ export default function MesasPage() {
     
     // Add Products Modal State
     const [showAddProducts, setShowAddProducts] = useState(false);
-    const [menuProducts, setMenuProducts] = useState<any[]>([]);
+    const [menuProducts, setMenuProducts] = useState<MenuProduct[]>([]);
     const [loadingMenu, setLoadingMenu] = useState(false);
-    const [selectedProducts, setSelectedProducts] = useState<any[]>([]);
+    const [selectedProducts, setSelectedProducts] = useState<SelectedProduct[]>([]);
     const [addingProducts, setAddingProducts] = useState(false);
     const [productSearch, setProductSearch] = useState("");
     const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
@@ -60,7 +79,7 @@ export default function MesasPage() {
     // Replace item state
     const [replacingItemId, setReplacingItemId] = useState<string | null>(null);
     const [replaceSearch, setReplaceSearch] = useState("");
-    const [replaceMenuProducts, setReplaceMenuProducts] = useState<any[]>([]);
+    const [replaceMenuProducts, setReplaceMenuProducts] = useState<MenuProduct[]>([]);
     const [loadingReplaceMenu, setLoadingReplaceMenu] = useState(false);
     const [replacingInProgress, setReplacingInProgress] = useState(false);
     const [replaceCantidad, setReplaceCantidad] = useState<number>(1);
@@ -125,7 +144,7 @@ export default function MesasPage() {
                 const data = await res.json();
                 setOrderItems(data.items);
             }
-        } catch (err) { }
+        } catch { }
     }, []);
 
     const openAddProductsModal = async (ordenNu?: string, e?: React.MouseEvent) => {
@@ -145,7 +164,7 @@ export default function MesasPage() {
         finally { setLoadingMenu(false); }
     };
 
-    const addProductToSelection = (product: any) => {
+    const addProductToSelection = (product: MenuProduct) => {
         setSelectedProducts(prev => {
             const existing = prev.find(p => p.id === product.id);
             if (existing) {
@@ -185,7 +204,7 @@ export default function MesasPage() {
                 const data = await res.json();
                 alert(data.error || "Error al agregar productos");
             }
-        } catch (err) { alert("Error de conexión"); }
+        } catch { alert("Error de conexión"); }
         finally { setAddingProducts(false); }
     };
 
@@ -232,7 +251,7 @@ export default function MesasPage() {
                 const data = await res.json();
                 alert(data.error || "Error al reemplazar");
             }
-        } catch (err) { alert("Error de conexión"); }
+        } catch { alert("Error de conexión"); }
         finally { setReplacingInProgress(false); }
     };
 
@@ -439,7 +458,7 @@ export default function MesasPage() {
                                     <div role="status" style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No se encontraron productos</div>
                                 ) : (
                                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '8px' }}>
-                                        {menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product: any) => (
+                                        {menuProducts.filter(p => productSearch === "" || p.name.toLowerCase().includes(productSearch.toLowerCase())).map((product) => (
                                             <div 
                                                 key={product.id} 
                                                 onClick={() => addProductToSelection(product)} 
@@ -553,7 +572,7 @@ export default function MesasPage() {
                                     <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No se encontraron productos</div>
                                 ) : (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                        {replaceMenuProducts.filter(p => replaceSearch === "" || p.name.toLowerCase().includes(replaceSearch.toLowerCase())).map((product: any) => (
+                                        {replaceMenuProducts.filter(p => replaceSearch === "" || p.name.toLowerCase().includes(replaceSearch.toLowerCase())).map((product) => (
                                             <div 
                                                 key={product.id} 
                                                 onClick={() => setReplaceSelectedProduct(product.name)}

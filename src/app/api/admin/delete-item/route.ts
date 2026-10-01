@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
     if (!itemId) return jsonError('itemId requerido');
 
     const supabase = getServerSupabase();
-    const { error } = await (supabase.from('orden_items') as any).delete().eq('id', itemId);
+    const { error } = await supabase.from('orden_items').delete().eq('id', itemId);
     if (error) throw error;
     return jsonOk({ success: true });
   } catch (err) {

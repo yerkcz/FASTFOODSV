@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
       .order('opened_at', { ascending: false });
     if (error) throw error;
 
-    const tables = (data || []).map((o: any) => ({
+    const tables = (data || []).map((o) => ({
       orden_nu: o.id,
       mesa: String(o.mesa_numero),
       cliente: o.cliente_nombre,

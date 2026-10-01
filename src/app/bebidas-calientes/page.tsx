@@ -13,8 +13,14 @@ type OrderItem = {
   notas: string | null;
   listo: boolean;
   hora_registro: string;
-  mesa: string;
+  /** El item de /api/kitchen/orders trae la categoria del producto. */
+  categoria: string;
+  /** La API NO incluye la mesa en el item: queda `undefined` y se pinta "—". */
+  mesa?: string;
 };
+
+/** Respuesta de /api/kitchen/orders, agrupada por orden abierta. */
+type KitchenOrdersResponse = { orders: Array<{ items: OrderItem[] }> };
 
 export default function BebidasCalientesPage() {
   const [items, setItems] = useState<OrderItem[]>([]);
@@ -31,10 +37,10 @@ export default function BebidasCalientesPage() {
     try {
       const res = await fetch("/api/kitchen/orders");
       if (res.ok) {
-        const data = await res.json();
+        const data = (await res.json()) as KitchenOrdersResponse;
         const filtered: OrderItem[] = [];
-        data.orders.forEach((order: any) => {
-          order.items.forEach((item: any) => {
+        data.orders.forEach((order) => {
+          order.items.forEach((item) => {
             if (!item.listo && isHotDrink(item.categoria)) {
               filtered.push(item);
             }

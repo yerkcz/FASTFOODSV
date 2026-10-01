@@ -8,6 +8,7 @@ import { formatTime, getElapsedMins, getTimeColor, getTimeBg, getUrgencyBadge, g
 
 const AnalyticsDashboard = dynamic(() => import('@/components/analytics/AnalyticsDashboard'), { ssr: false });
 import { type Product, type CartItem } from "@/types";
+import type { CierreCajaRow } from "@/types/db";
 import { formatColones } from "@/lib/format";
 
 type MesaGroup = {
@@ -28,6 +29,62 @@ type OrderItem = {
     HoraRegistro: string;
     FechaRegistro?: string;
     Orden_Nu: string;
+};
+
+/** Item de `comprobantes.items_snapshot` (formato nuevo y legado de la factura). */
+type SnapshotItem = {
+    id?: string;
+    nombre?: string | null;
+    ARTICULO?: string | null;
+    precio_unitario?: number | null;
+    PRECIO?: number | null;
+    cantidad?: number | null;
+    CANTIDAD?: number | null;
+    notas?: string | null;
+    NOTAS?: string | null;
+};
+
+/** Fila que devuelve /api/admin/closed-orders (comprobante + pago + orden). */
+type ClosedOrder = {
+    comprobante_id?: string;
+    orden_nu: string;
+    cliente: string;
+    fecha: string;
+    forma_pago: string;
+    total: number;
+    monto_recibido: number;
+    vuelto: number;
+    tipo?: string;
+    items_snapshot?: SnapshotItem[] | null;
+};
+
+/** Proyección de /api/admin/products (producto con su categoría anidada). */
+type ProductoAdmin = {
+    id: string;
+    nombre: string;
+    precio: number;
+    categoria_id: string;
+    menu_origen?: string | null;
+    disponible?: boolean;
+    categorias?: { nombre: string } | null;
+};
+
+type CategoriaAdmin = { id: string; nombre: string };
+
+/** Respuesta de GET /api/cierre-caja. */
+type CierreTotales = {
+    total_ordenes?: number;
+    total_ingresos?: number;
+    total_efectivo?: number;
+    total_tarjeta?: number;
+    total_sinpe?: number;
+};
+
+type CierreRes = {
+    fecha?: string;
+    totales?: CierreTotales;
+    cierre?: CierreCajaRow | null;
+    cerrado?: boolean;
 };
 
 
@@ -88,10 +145,10 @@ export default function AdminPortal() {
     const [selectedPaymentItems, setSelectedPaymentItems] = useState<string[]>([]);
     const [paymentMethod, setPaymentMethod] = useState<"Efectivo" | "Tarjeta" | "Sinpe">("Efectivo");
     const [amountReceived, setAmountReceived] = useState<string>("");
-    const [splitCount, setSplitCount] = useState<number>(1);
     // Split Bill
     const [splitMode, setSplitMode] = useState<'none' | 'by_person' | 'manual' | 'manual_person' | 'equal'>('none');
-    const [splitN, setSplitN] = useState(2);
+    // `splitN` ya no se lee, pero `setSplitN` se reinicia al abrir una mesa.
+    const [, setSplitN] = useState(2);
     const [splitPersonIdx, setSplitPersonIdx] = useState(0);
 
     // Phase E: Reassign Items
@@ -107,22 +164,22 @@ export default function AdminPortal() {
     // Cierre de caja (tab "Cierre"). El endpoint /api/cierre-caja ya existia
     // pero nunca funciono (insertaba `diferencia`, que es columna GENERATED) y
     // ningun lo consumia. Ver src/lib/cierreCaja.ts.
-    const [cierre, setCierre] = useState<any>(null);
+    const [cierre, setCierre] = useState<CierreRes | null>(null);
     const [efectivoContado, setEfectivoContado] = useState<string>("");
     const [cerrandoCaja, setCerrandoCaja] = useState(false);
 
     // Phase F: Add Products to Existing Order
     const [showAddProducts, setShowAddProducts] = useState(false);
-    const [selectedAddProducts, setSelectedAddProducts] = useState<any[]>([]);
+    const [selectedAddProducts, setSelectedAddProducts] = useState<CartItem[]>([]);
     const [addingProducts, setAddingProducts] = useState(false);
     const [productSearch, setProductSearch] = useState("");
     const [targetOrdenNu, setTargetOrdenNu] = useState<string | null>(null);
 
     // Product CRUD state
-    const [products, setProducts] = useState<any[]>([]);
-    const [categories, setCategories] = useState<any[]>([]);
+    const [products, setProducts] = useState<ProductoAdmin[]>([]);
+    const [categories, setCategories] = useState<CategoriaAdmin[]>([]);
     const [showProductModal, setShowProductModal] = useState(false);
-    const [editingProduct, setEditingProduct] = useState<any | null>(null);
+    const [editingProduct, setEditingProduct] = useState<ProductoAdmin | null>(null);
     const [productName, setProductName] = useState("");
     const [productPrice, setProductPrice] = useState("");
     const [productCategory, setProductCategory] = useState("");
@@ -131,7 +188,7 @@ export default function AdminPortal() {
 
     // Phase D: Admin Tabs & Closed Orders
     const [adminTab, setAdminTab] = useState<"open" | "closed" | "caja" | "stats" | "products">("open");
-    const [closedOrders, setClosedOrders] = useState<any[]>([]);
+    const [closedOrders, setClosedOrders] = useState<ClosedOrder[]>([]);
     const [closedTotal, setClosedTotal] = useState(0);
     const [meseroCount, setMeseroCount] = useState(1);
 
@@ -166,7 +223,7 @@ export default function AdminPortal() {
             } else {
                 setLoginError("PIN incorrecto");
             }
-        } catch (err) {
+        } catch {
             setLoginError("Error de conexión");
         } finally {
             setLoading(false);
@@ -247,7 +304,7 @@ export default function AdminPortal() {
                     const data = await res.json();
                     alert(data.error || "Error al cerrar la mesa");
                 }
-            } catch (err) {
+            } catch {
                 alert("Error de conexión al cerrar mesa");
             } finally {
                 setClosing(null);
@@ -279,7 +336,7 @@ export default function AdminPortal() {
             } else {
                 alert("Error al desbloquear la mesa.");
             }
-        } catch (err) {
+        } catch {
             alert("Error de conexión al intentar desbloquear la mesa.");
         }
     };
@@ -327,7 +384,7 @@ export default function AdminPortal() {
                 const data = await res.json();
                 setTableItems(data.items);
             }
-        } catch (err) {
+        } catch {
             // Silent fail — don't disrupt UI on background poll error
         }
     }, [adminKey]);
@@ -350,7 +407,6 @@ export default function AdminPortal() {
 
         // Detectar si es cross-mesa
         const itemMesa = selectedGroup?.ordenes.find(o => o.orden_nu === reassignModal.item.Orden_Nu);
-        const targetOrder = mesaGroups.flatMap(mg => mg.ordenes).find(o => o.orden_nu === reassignTarget);
         const targetGroup = mesaGroups.find(mg => mg.ordenes.some(o => o.orden_nu === reassignTarget));
         if (itemMesa && targetGroup && targetGroup.mesa !== selectedGroup?.mesa) {
             if (!confirm("⚠️ Este ítem se moverá a OTRA MESA.\n(Origen: " + (selectedGroup?.mesa || 'Mesa actual') + " → Destino: " + (targetGroup.mesa || 'Otra mesa') + ")\n¿Estás segura?")) {
@@ -374,7 +430,7 @@ export default function AdminPortal() {
                 const data = await res.json();
                 alert(data.error || "Error al reasignar el ítem");
             }
-        } catch(err) {
+        } catch {
             alert("Error de conexión");
         } finally {
             setReassigning(false);
@@ -410,7 +466,7 @@ export default function AdminPortal() {
                 const data = await res.json();
                 alert(data.error || "Error al dividir el ítem");
             }
-        } catch (err) {
+        } catch {
             alert("Error de conexión al dividir");
         } finally {
             setSplittingItem(false);
@@ -436,7 +492,7 @@ export default function AdminPortal() {
                 } else {
                     alert("Error al anular el ítem");
                 }
-            } catch(err) {
+            } catch {
                 alert("Error de conexión");
             } finally {
                 setDeletingItem(null);
@@ -498,7 +554,7 @@ export default function AdminPortal() {
                 const data = await res.json();
                 alert(data.error || "Error al agregar productos");
             }
-        } catch(err) { alert("Error de conexión"); }
+        } catch { alert("Error de conexión"); }
         finally { setAddingProducts(false); }
     };
 
@@ -554,7 +610,7 @@ export default function AdminPortal() {
                 const data = await res.json();
                 alert(data.error || "Error creando orden");
             }
-        } catch(err) {
+        } catch {
             alert("Error de conexión");
         } finally {
             setPosLoading(false);
@@ -571,7 +627,6 @@ export default function AdminPortal() {
         .filter(i => selectedPaymentItems.includes(i.ID))
         .reduce((sum, item) => sum + item.TOTAL, 0);
     const checkoutSelectedTotal = Math.round(checkoutSubtotal);
-    const splitAmount = splitCount > 1 ? Math.ceil(checkoutSelectedTotal / splitCount) : checkoutSelectedTotal;
 
     // AVISO de sobrepago absurdo. NO bloquea el cobro: pagar con un billete de
     // ₡10,000 una cuenta de ₡3,500 es normal y tiene que funcionar. Solo avisa
@@ -611,13 +666,13 @@ export default function AdminPortal() {
         clienteName: string,
         orderTotal: number,
         pagoInfo?: { forma_pago: string; monto_recibido: number; vuelto: number },
-        snapshot?: any[],
+        snapshot?: SnapshotItem[] | null,
         tipo?: string,
         modo: 'descargar' | 'imprimir' = 'descargar'
     ) => {
         try {
             const src = Array.isArray(snapshot) ? snapshot : [];
-            const formattedItems = src.map((it: any, index: number) => ({
+            const formattedItems = src.map((it, index) => ({
                 id: it.id || String(index),
                 name: it.nombre ?? it.ARTICULO ?? 'Ítem',
                 price: Number(it.precio_unitario ?? it.PRECIO ?? 0),
@@ -638,7 +693,7 @@ export default function AdminPortal() {
               vuelto: pagoInfo.vuelto || 0,
             } : undefined;
             await generateInvoice(formattedItems, finalTotal, { mesa: mesaValue, cliente: clienteName }, ordenNu, invoicePago, modo);
-        } catch (err) {
+        } catch {
             alert("No se pudo generar el comprobante");
         }
     };
@@ -709,7 +764,7 @@ export default function AdminPortal() {
       setShowProductModal(true);
     };
 
-    const openEditProduct = (p: any) => {
+    const openEditProduct = (p: ProductoAdmin) => {
       setEditingProduct(p);
       setProductName(p.nombre);
       setProductPrice(String(p.precio));
@@ -1083,12 +1138,12 @@ export default function AdminPortal() {
                         {/* ── Cierre del día: conteo físico de efectivo vs sistema ── */}
                         {(() => {
                             if (!cierre) return null;
-                            const t = cierre.totales || {};
+                            const t: CierreTotales = cierre.totales || {};
                             const c = cierre.cierre || null;
                             const cerrado = !!cierre.cerrado;
                             const esperadoEfectivo = Number(t.total_efectivo || 0);
                             const dif = c ? Number(c.diferencia || 0) : null;
-                            const cont = (label: string, valor: any) => (
+                            const cont = (label: string, valor: number | undefined) => (
                                 <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--surface-border)', fontSize: '0.85rem' }}>
                                     <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
                                     <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatColones(Number(valor || 0))}</span>
@@ -1192,7 +1247,7 @@ export default function AdminPortal() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {products.map((p: any) => (
+                                    {products.map((p) => (
                                         <tr key={p.id} style={{ borderBottom: '1px solid var(--surface-border)' }}>
                                             <td style={{ padding: '10px 12px', color: 'var(--text-primary)', fontWeight: 500 }}>{p.nombre}</td>
                                             <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>{p.categorias?.nombre || '-'}</td>
@@ -1223,7 +1278,7 @@ export default function AdminPortal() {
                             </table>
                             {products.length === 0 && (
                                 <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
-                                    No hay productos. Presiona "+ AGREGAR" para crear el primero.
+                                    No hay productos. Presiona &quot;+ AGREGAR&quot; para crear el primero.
                                 </div>
                             )}
                         </div>
@@ -1253,7 +1308,7 @@ export default function AdminPortal() {
                                 <select value={productCategory} onChange={e => setProductCategory(e.target.value)}
                                     style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }}>
                                     <option value="">Seleccionar categoría</option>
-                                    {categories.map((c: any) => (
+                                    {categories.map((c) => (
                                         <option key={c.id} value={c.id}>{c.nombre}</option>
                                     ))}
                                 </select>

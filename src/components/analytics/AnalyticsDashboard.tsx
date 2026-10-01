@@ -4,6 +4,7 @@ import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
   LineElement, PointElement, ArcElement, Title, Tooltip, Legend, Filler, LineController, BarController, DoughnutController
 } from 'chart.js';
+import type { ChartData } from 'chart.js';
 import { Line, Bar, Doughnut, Chart } from 'react-chartjs-2';
 import { generateReportPDF } from '@/lib/generateReport';
 import { formatColones } from '@/lib/format';
@@ -31,7 +32,75 @@ const COLORS = {
 };
 
 const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+// ── Tipos de las respuestas de /api/analytics/* ──────────────────────────
+type DashboardData = {
+  kpis: {
+    ingresos_totales: number;
+    total_ordenes: number;
+    ticket_promedio: number;
+    ordenes_por_dia: number;
+    coef_variacion: number;
+  };
+  comparativa: {
+    pct_cambio_ingresos: number;
+    pct_cambio_ordenes: number;
+    pct_cambio_ticket: number;
+  };
+};
+
+type ProductoStat = {
+  producto: string;
+  categoria: string;
+  unidades_vendidas: number;
+  ingresos: number;
+  rotacion_diaria: number;
+  pct_individual: number;
+  pct_acumulado?: number;
+  es_vital?: boolean;
+};
+
+type ProductsData = {
+  productos: ProductoStat[];
+  categorias: { nombre: string; ingresos: number }[];
+  total_ingresos: number;
+};
+
+type GoldenHour = { hora: number; ingresos: number };
+type WeekdayStat = { dia_num: number; dia: string; ingresos: number };
+type PaymentStat = { metodo: string; ingresos: number };
+type TimeSeriesPoint = { periodo: string; ingresos: number };
+type TurnoverStat = { mesa: number | null; mins_promedio: number };
+type BasketPair = { producto_a: string; producto_b: string; frecuencia: number };
+type CategoryStat = { categoria: string; ingresos: number; pct_participacion?: number };
+type ProductTrend = {
+  producto?: string;
+  categoria?: string;
+  unidades?: number;
+  ingresos: number;
+  tendencia: string;
+};
+type RetentionSegment = { segmento: string; clientes: number; ordenes: number; ingresos: number };
+type TicketRange = { rango: string; ordenes: number; pct_ordenes: number };
+type SpeedMetric = { descripcion: string; metric: string; valor: number };
+
+type TrendsData = {
+  timeSeries?: TimeSeriesPoint[];
+  goldenHours?: GoldenHour[];
+  payments?: PaymentStat[];
+  weekdays?: WeekdayStat[];
+  tableTurnover?: TurnoverStat[];
+  basket?: BasketPair[];
+  categories?: CategoryStat[];
+  products?: ProductTrend[];
+  retention?: RetentionSegment[];
+  tickets?: TicketRange[];
+  shifts?: SpeedMetric[];
+  speed?: SpeedMetric[];
+};
+
+/** Argumentos que exige `generateReportPDF` (su firma vive en otro módulo). */
+type ReportArgs = Parameters<typeof generateReportPDF>;
 
 /**
  * Chart.js no acepta `var(--x)`: necesita el color resuelto para pintar en
@@ -63,12 +132,11 @@ function TooltipCard({ title, children, icon }: { title: string; children: React
 
 export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const [periodo, setPeriodo] = useState<string>('mes');
-  const [dashboardData, setDashboardData] = useState<any>(null);
-  const [productsData, setProductsData] = useState<any>(null);
-  const [trendsData, setTrendsData] = useState<any>(null);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [productsData, setProductsData] = useState<ProductsData | null>(null);
+  const [trendsData, setTrendsData] = useState<TrendsData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showHelp, setShowHelp] = useState(false);
   // El reporte PDF es un documento en papel blanco (texto #0d1117). Las
   // graficas se pintan en tema oscuro, asi que al exportar hay que volver a
   // pintarlas en claro o el PDF sale con 4 rectangulos negros.
@@ -76,12 +144,15 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const chartGrid = pdfLight ? '#e8eaed' : cssVar('--surface-border', '#1f2a26');
   const chartRing = pdfLight ? '#ffffff' : cssVar('--card-bg', '#11191f');
 
-  const trendRef = useRef<any>(null);
-  const peakRef = useRef<any>(null);
-  const donutRef = useRef<any>(null);
-  const paretoRef = useRef<any>(null);
-  const paymentRef = useRef<any>(null);
-  const weekdayRef = useRef<any>(null);
+  // TData es el tipo del ARRAY `data` (ChartDatasetProperties.data: TData) y
+  // TLabel el de `labels`; se declaran iguales a los de cada grafica para que
+  // la inferencia del `ref` y la del `data` no entren en conflicto.
+  const trendRef = useRef<ChartJS<'line', number[], string> | null>(null);
+  const peakRef = useRef<ChartJS<'bar', number[], string> | null>(null);
+  const donutRef = useRef<ChartJS<'doughnut', number[], string> | null>(null);
+  const paretoRef = useRef<ChartJS<'bar'> | null>(null);
+  const paymentRef = useRef<ChartJS<'doughnut', number[], string> | null>(null);
+  const weekdayRef = useRef<ChartJS<'bar', number[], string> | null>(null);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -105,8 +176,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       setDashboardData(dash);
       setProductsData(prod);
       setTrendsData(trend);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : null);
     } finally {
       setLoading(false);
     }
@@ -129,7 +200,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
     if (!productsData?.productos) return;
     const BOM = '\uFEFF';
     let csv = BOM + 'Producto,Categoría,Unidades Vendidas,Ingresos,Rotación Diaria,% del Total\n';
-    productsData.productos.forEach((p: any) => {
+    productsData.productos.forEach((p) => {
       csv += `"${p.producto}","${p.categoria}",${p.unidades_vendidas},${p.ingresos},${p.rotacion_diaria},${p.pct_individual}%\n`;
     });
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -147,14 +218,21 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
     setPdfLight(true);
     await settle();
     const refs = {
-      trend: trendRef.current?.toBase64Image(),
-      peakHours: peakRef.current?.toBase64Image(),
-      donut: donutRef.current?.toBase64Image(),
-      pareto: paretoRef.current?.toBase64Image(),
+      trend: trendRef.current?.toBase64Image() as string,
+      peakHours: peakRef.current?.toBase64Image() as string,
+      donut: donutRef.current?.toBase64Image() as string,
+      pareto: paretoRef.current?.toBase64Image() as string,
     };
     setPdfLight(false);
     await settle();
-    await generateReportPDF(dashboardData, productsData, trendsData, refs);
+    // El estado es `T | null`, pero este handler solo corre tras el guard de
+    // arriba; el cast es solo de tipos (se borra en compilación).
+    await generateReportPDF(
+      dashboardData as unknown as ReportArgs[0],
+      productsData as unknown as ReportArgs[1],
+      trendsData,
+      refs
+    );
   };
 
   const periodoLabel = useMemo(() => {
@@ -190,13 +268,13 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const totalIngresos = productsData?.total_ingresos || 0;
   
   // Calcular métricas adicionales
-  const peakHour = trendsData.goldenHours?.reduce((max: any, h: any) => h.ingresos > (max?.ingresos || 0) ? h : max, null);
-  const bestDay = trendsData.weekdays?.reduce((max: any, d: any) => d.ingresos > (max?.ingresos || 0) ? d : max, null);
-  const paymentTotals = trendsData.payments?.reduce((acc: number, p: any) => acc + p.ingresos, 0) || 1;
+  const peakHour = trendsData.goldenHours?.reduce<GoldenHour | null>((max, h) => h.ingresos > (max?.ingresos || 0) ? h : max, null);
+  const bestDay = trendsData.weekdays?.reduce<WeekdayStat | null>((max, d) => d.ingresos > (max?.ingresos || 0) ? d : max, null);
+  const paymentTotals = trendsData.payments?.reduce((acc: number, p) => acc + p.ingresos, 0) || 1;
 
   // -- NEW: Inteligencia de Negocio & Variables --
-  const validTurnovers = trendsData.tableTurnover?.filter((t: any) => t.mesa && t.mins_promedio > 0) || [];
-  const turnoverPromedio = validTurnovers.length > 0 ? (validTurnovers.reduce((acc: number, t: any) => acc + t.mins_promedio, 0) / validTurnovers.length) : 0;
+  const validTurnovers = trendsData.tableTurnover?.filter((t) => t.mesa && t.mins_promedio > 0) || [];
+  const turnoverPromedio = validTurnovers.length > 0 ? (validTurnovers.reduce((acc: number, t) => acc + t.mins_promedio, 0) / validTurnovers.length) : 0;
   const topCrossSell = trendsData.basket?.[0];
 
   // Nuevas métricas de ciencia de datos
@@ -204,20 +282,19 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const productTrends = trendsData.products || [];
   const retentionData = trendsData.retention || [];
   const ticketDist = trendsData.tickets || [];
-  const shiftProducts = trendsData.shifts || [];
   const speedMetrics = trendsData.speed || [];
 
   // ===================== GRÁFICOS =====================
   
   // Tendencia de Ingresos
   const trendData = {
-    labels: trendsData.timeSeries?.map((t: any) => {
+    labels: trendsData.timeSeries?.map((t) => {
       const d = new Date(t.periodo);
       return d.toLocaleDateString('es-CR', { month: 'short', day: 'numeric' });
     }) || [],
     datasets: [{
       label: 'Ingresos Diarios',
-      data: trendsData.timeSeries?.map((t: any) => t.ingresos) || [],
+      data: trendsData.timeSeries?.map((t) => t.ingresos) || [],
       borderColor: COLORS.primary,
       backgroundColor: 'rgba(26, 115, 232, 0.08)',
       fill: true,
@@ -230,11 +307,11 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   // Horas Pico
   const peakHoursData = {
-    labels: trendsData.goldenHours?.map((h: any) => `${h.hora}:00`) || [],
+    labels: trendsData.goldenHours?.map((h) => `${h.hora}:00`) || [],
     datasets: [{
       label: 'Ingresos',
-      data: trendsData.goldenHours?.map((h: any) => h.ingresos) || [],
-      backgroundColor: trendsData.goldenHours?.map((h: any, i: number) => {
+      data: trendsData.goldenHours?.map((h) => h.ingresos) || [],
+      backgroundColor: trendsData.goldenHours?.map((_h, i) => {
         if (i === 0) return COLORS.success;
         if (i === 1) return COLORS.warning;
         if (i === 2) return COLORS.orange;
@@ -246,9 +323,9 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   // Categorías (Dona)
   const donutData = {
-    labels: productsData.categorias?.map((c: any) => c.nombre) || [],
+    labels: productsData!.categorias?.map((c) => c.nombre) || [],
     datasets: [{
-      data: productsData.categorias?.map((c: any) => c.ingresos) || [],
+      data: productsData!.categorias?.map((c) => c.ingresos) || [],
       backgroundColor: COLORS.palette,
       hoverOffset: 8,
       borderWidth: 2,
@@ -258,9 +335,9 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   // Métodos de Pago
   const paymentData = {
-    labels: trendsData.payments?.map((p: any) => p.metodo === 'No registrado' ? 'Sin Registrar' : p.metodo) || [],
+    labels: trendsData.payments?.map((p) => p.metodo === 'No registrado' ? 'Sin Registrar' : p.metodo) || [],
     datasets: [{
-      data: trendsData.payments?.map((p: any) => p.ingresos) || [],
+      data: trendsData.payments?.map((p) => p.ingresos) || [],
       backgroundColor: [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray],
       borderWidth: 0
     }]
@@ -268,12 +345,12 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   // Días de la Semana
   const weekdayData = {
-    labels: trendsData.weekdays?.map((d: any) => DAYS_ES[d.dia_num] || d.dia) || [],
+    labels: trendsData.weekdays?.map((d) => DAYS_ES[d.dia_num] || d.dia) || [],
     datasets: [{
       label: 'Ingresos',
-      data: trendsData.weekdays?.map((d: any) => d.ingresos) || [],
-      backgroundColor: trendsData.weekdays?.map((d: any, i: number) => {
-        const max = Math.max(...(trendsData.weekdays?.map((x: any) => x.ingresos) || [0]));
+      data: trendsData.weekdays?.map((d) => d.ingresos) || [],
+      backgroundColor: trendsData.weekdays?.map((d) => {
+        const max = Math.max(...(trendsData.weekdays?.map((x) => x.ingresos) || [0]));
         const intensity = max > 0 ? d.ingresos / max : 0;
         return intensity > 0.8 ? COLORS.success : intensity > 0.5 ? COLORS.teal : COLORS.primary;
       }) || [],
@@ -282,13 +359,13 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   };
 
   // Top 10 Productos
-  const top10 = (productsData.productos || []).slice(0, 10);
+  const top10 = (productsData!.productos || []).slice(0, 10);
   const topProductsData = {
-    labels: top10.map((p: any) => p.producto.length > 22 ? p.producto.slice(0, 22) + '...' : p.producto),
+    labels: top10.map((p) => p.producto.length > 22 ? p.producto.slice(0, 22) + '...' : p.producto),
     datasets: [{
       label: 'Ingresos',
-      data: top10.map((p: any) => p.ingresos),
-      backgroundColor: top10.map((p: any, i: number) => 
+      data: top10.map((p) => p.ingresos),
+      backgroundColor: top10.map((p) =>
         p.es_vital ? COLORS.success : COLORS.primary
       ),
       borderRadius: 4
@@ -297,12 +374,12 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   // Pareto
   const paretoData = {
-    labels: top10.map((p: any) => p.producto.length > 12 ? p.producto.slice(0, 12) + '..' : p.producto),
+    labels: top10.map((p) => p.producto.length > 12 ? p.producto.slice(0, 12) + '..' : p.producto),
     datasets: [
       {
         type: 'line' as const,
         label: '% Acumulado',
-        data: top10.map((p: any) => p.pct_acumulado),
+        data: top10.map((p) => p.pct_acumulado),
         borderColor: COLORS.danger,
         borderWidth: 3,
         yAxisID: 'y1',
@@ -312,8 +389,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       {
         type: 'bar' as const,
         label: 'Ingresos',
-        data: top10.map((p: any) => p.ingresos),
-        backgroundColor: top10.map((p: any) => p.es_vital ? COLORS.success : 'var(--surface-border)'),
+        data: top10.map((p) => p.ingresos),
+        backgroundColor: top10.map((p) => p.es_vital ? COLORS.success : 'var(--surface-border)'),
         yAxisID: 'y'
       }
     ]
@@ -465,7 +542,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div>
             <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⏱️ Tiempo en Mesa</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>{Math.round(turnoverPromedio)}<span style={{fontSize: '1rem'}}>'</span></div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>{Math.round(turnoverPromedio)}<span style={{fontSize: '1rem'}}>&apos;</span></div>
           </div>
           <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
             promedio general de min.
@@ -567,7 +644,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             }} />
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', marginTop: '12px' }}>
-            {trendsData.payments?.map((p: any, i: number) => (
+            {trendsData.payments?.map((p, i) => (
               <div key={p.metodo} style={{ 
                 display: 'flex', alignItems: 'center', gap: '6px',
                 background: 'var(--surface)', padding: '6px 12px', borderRadius: '20px',
@@ -593,7 +670,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             }} />
           </div>
           <TooltipCard icon="🎯" title="Dato Clave">
-            Tu categoría estrella genera el {productsData.categorias?.[0] ? Math.round(productsData.categorias[0].ingresos / totalIngresos * 100) : 0}% de las ventas.
+            Tu categoría estrella genera el {productsData!.categorias?.[0] ? Math.round(productsData!.categorias[0].ingresos / totalIngresos * 100) : 0}% de las ventas.
           </TooltipCard>
         </div>
       </div>
@@ -606,7 +683,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los 10 productos que más generan ingresos</p>
           </div>
           <div style={{ background: 'var(--primary-surface)', padding: '8px 16px', borderRadius: '8px' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>10 productos = {Math.round(top10.reduce((s: number, p: any) => s + p.pct_individual, 0))}% de ventas</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>10 productos = {Math.round(top10.reduce((s: number, p) => s + p.pct_individual, 0))}% de ventas</span>
           </div>
         </div>
         
@@ -632,7 +709,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
                 </tr>
               </thead>
               <tbody>
-                {top10.map((p: any, i: number) => (
+                {top10.map((p, i) => (
                   <tr key={p.producto} style={{ borderBottom: '1px solid var(--surface)' }}>
                     <td style={{ padding: '10px 8px', fontWeight: 700, color: p.es_vital ? 'var(--primary)' : 'var(--text-secondary)' }}>{i + 1}</td>
                     <td style={{ padding: '10px 8px' }}>
@@ -664,7 +741,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
           </TooltipCard>
         </div>
         <div style={{ height: '300px' }}>
-          <Chart ref={paretoRef} type="bar" data={paretoData as any} options={{
+          <Chart ref={paretoRef} type="bar" data={paretoData as unknown as ChartData<'bar'>} options={{
             responsive: true,
             maintainAspectRatio: false,
             plugins: { 
@@ -686,7 +763,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🛒 Productos Comprados Juntos</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los "Combos Naturales" de tus clientes</p>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los &quot;Combos Naturales&quot; de tus clientes</p>
             </div>
             <TooltipCard icon="💡" title="Upselling">
               Entrena a tus meseros para ofrecer mágicamente el Segundo cuando el cliente pide el Primero.
@@ -696,7 +773,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Aún no hay suficientes datos históricos.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
-              {trendsData.basket?.slice(0,8).map((b: any, i: number) => (
+              {trendsData.basket?.slice(0,8).map((b, i) => (
                 <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--surface)' }}>
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div style={{ flex: 1, textAlign: 'right', fontWeight: 700, color: 'var(--primary)', fontSize: '0.85rem' }}>{b.producto_a.length > 22 ? b.producto_a.substring(0,20)+'..' : b.producto_a}</div>
@@ -726,8 +803,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>No hay registros de tiempo en mesa.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto' }}>
-              {validTurnovers.map((t: any, i: number) => {
-                const maxMins = Math.max(...validTurnovers.map((x: any) => x.mins_promedio));
+              {validTurnovers.map((t, i) => {
+                const maxMins = Math.max(...validTurnovers.map((x) => x.mins_promedio));
                 const pct = Math.max(8, Math.round((t.mins_promedio / (maxMins || 1)) * 100));
                 const isSlow = t.mins_promedio > turnoverPromedio * 1.35;
                 const isFast = t.mins_promedio < turnoverPromedio * 0.65;
@@ -761,8 +838,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {categoryData.slice(0, 8).map((cat: any, i: number) => {
-                const maxIng = Math.max(...categoryData.map((x: any) => x.ingresos));
+              {categoryData.slice(0, 8).map((cat, i) => {
+                const maxIng = Math.max(...categoryData.map((x) => x.ingresos));
                 const pct = Math.round((cat.ingresos / maxIng) * 100);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -788,7 +865,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, 100%), 1fr))', gap: '12px' }}>
-              {ticketDist.map((t: any, i: number) => (
+              {ticketDist.map((t, i) => (
                 <div key={i} style={{ textAlign: 'center', padding: '16px', background: 'var(--surface)', borderRadius: '12px' }}>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: COLORS.palette[i % COLORS.palette.length] }}>{t.rango}</div>
                   <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{t.ordenes}</div>
@@ -809,7 +886,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
-              {retentionData.map((r: any, i: number) => {
+              {retentionData.map((r, i) => {
                 const colors = [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray];
                 return (
                   <div key={i} style={{ 
@@ -840,7 +917,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {productTrends.slice(0, 10).map((p: any, i: number) => {
+              {productTrends.slice(0, 10).map((p, i) => {
                 const tendenciaColor = p.tendencia === 'subiendo' ? COLORS.success : (p.tendencia === 'bajando' ? COLORS.danger : COLORS.gray);
                 const tendenciaIcon = p.tendencia === 'subiendo' ? '📈' : (p.tendencia === 'bajando' ? '📉' : '➡️');
                 return (
@@ -869,7 +946,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
               <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>KPIs operativos del período</p>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: '16px' }}>
-              {speedMetrics.map((m: any, i: number) => (
+              {speedMetrics.map((m, i) => (
                 <div key={i} style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{m.descripcion}</div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>

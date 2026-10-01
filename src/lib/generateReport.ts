@@ -1,11 +1,39 @@
 import { jsPDF } from 'jspdf';
 import { formatColones } from '@/lib/format';
 
+/** Fila de productos que alimenta las tablas del reporte. */
+type ProductoReporte = {
+  producto: string;
+  categoria: string;
+  unidades_vendidas: number;
+  ingresos: number;
+  pct_individual: number;
+};
+
+type DashboardReporte = {
+  periodo: { label: string };
+  kpis: {
+    ingresos_totales: number;
+    total_ordenes: number;
+    ticket_promedio: number;
+    ordenes_por_dia: number;
+    coef_variacion: number;
+  };
+  comparativa: {
+    pct_cambio_ingresos: number;
+    pct_cambio_ordenes: number;
+    pct_cambio_ticket: number;
+  };
+  top10_productos?: ProductoReporte[] | null;
+};
+
+type ProductosReporte = { productos: ProductoReporte[] };
 
 export async function generateReportPDF(
-  dashboardData: any,
-  productsData: any,
-  trendsData: any,
+  dashboardData: DashboardReporte,
+  productsData: ProductosReporte,
+  // Reservado para series de tiempo; el PDF actual no lo usa.
+  trendsData: unknown,
   chartRefs: { [key: string]: string } // base64 images of the charts
 ) {
   const doc = new jsPDF({ format: 'letter', unit: 'mm' });
@@ -154,7 +182,7 @@ export async function generateReportPDF(
   doc.setFont('helvetica', 'normal');
   const topList = dashboardData.top10_productos || productsData.productos.slice(0, 10);
   
-  topList.slice(0, 8).forEach((p: any, i: number) => {
+  topList.slice(0, 8).forEach((p, i) => {
     if (i % 2 === 0) {
       doc.setFillColor(246, 248, 250);
       doc.rect(marginX, currentY, pageWidth - 2 * marginX, 8, 'F');

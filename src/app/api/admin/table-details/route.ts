@@ -20,10 +20,10 @@ export async function GET(request: NextRequest) {
       .from('orden_items')
       .select('*')
       .in('orden_id', ordenesList)
-      .order('hora_registro', { ascending: true }) as { data: any[]; error: any };
+      .order('hora_registro', { ascending: true });
     if (error) throw error;
 
-    let mapped = (items || []).map((i: any) => ({
+    const mapped = (items || []).map((i) => ({
       ID: i.id,
       ARTICULO: i.nombre_producto,
       CANTIDAD: i.cantidad,

@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
       .eq('mesa_numero', parseInt(mesa) || 0)
       .eq('estado', 'abierta')
       .order('opened_at', { ascending: false })
-      .limit(1) as { data: any[]; error: any };
+      .limit(1);
 
     if (!data || data.length === 0) {
       return jsonOk({ isOccupied: false, isOwner: false, isGuest: false, mesa });

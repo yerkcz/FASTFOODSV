@@ -9,7 +9,7 @@ export async function POST(request: NextRequest) {
 
     const ready = listo === undefined ? true : !!listo;
     const supabase = getServerSupabase();
-    const { error } = await (supabase.from('orden_items') as any)
+    const { error } = await supabase.from('orden_items')
       .update({ listo: ready, estado_kds: ready ? 'listo' : 'pendiente' })
       .eq('id', itemId);
     if (error) throw error;

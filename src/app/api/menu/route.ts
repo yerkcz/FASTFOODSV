@@ -20,12 +20,14 @@ export async function GET(request: NextRequest) {
       .eq('activo', true)
       .order('orden');
 
-    const catMap = new Map((cats || []).map((c: any) => [c.id, c.nombre]));
+    const catMap = new Map<string, string>((cats || []).map((c) => [c.id, c.nombre]));
 
-    const products = (data || []).map((p: any) => ({
+    const products = (data || []).map((p) => ({
       id: p.id,
       name: p.nombre,
-      category: catMap.get(p.categoria_id) || 'Otros',
+      // `categoria_id` es anulable: el cast es solo de tipos (`get(null)` ya
+      // devolvía `undefined` y caía en 'Otros').
+      category: catMap.get(p.categoria_id as string) || 'Otros',
       price: Number(p.precio) || 0,
       menu: p.menu_origen,
     })).filter((p) => p.name && p.name.trim() !== '');
