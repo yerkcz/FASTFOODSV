@@ -171,9 +171,9 @@ export async function generateReportPDF(
   // Footer Pag 2
   doc.setFontSize(8);
   doc.setTextColor(139, 148, 158);
-  doc.text(`Reporte elaborado por Fast Food San Vicente POS`, pageWidth/2, 266, { align: 'center' });
+  doc.text(`Reporte elaborado por easystem`, pageWidth/2, 266, { align: 'center' });
   doc.text(`Página 2 de 2`, pageWidth/2, 270, { align: 'center' });
 
   // Save via browser
-  doc.save(`FastFoodSV_Reporte_Ejecutivo_${new Date().toISOString().slice(0, 10)}.pdf`);
+  doc.save(`easystem_Reporte_Ejecutivo_${new Date().toISOString().slice(0, 10)}.pdf`);
 }

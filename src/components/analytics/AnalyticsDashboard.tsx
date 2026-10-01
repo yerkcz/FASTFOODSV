@@ -33,19 +33,30 @@ const COLORS = {
 const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
 const DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
+/**
+ * Chart.js no acepta `var(--x)`: necesita el color resuelto para pintar en
+ * canvas. El resto del componente si usa variables CSS; solo las graficas
+ * pasan por aqui.
+ */
+function cssVar(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback;
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
+}
+
 function TooltipCard({ title, children, icon }: { title: string; children: React.ReactNode; icon: string }) {
   return (
     <div style={{ 
-      background: 'linear-gradient(135deg, #f8f9fa 0%, #e8f0fe 100%)', 
+      background: 'linear-gradient(135deg, var(--surface) 0%, var(--primary-surface) 100%)', 
       borderRadius: '8px', 
       padding: '12px',
-      border: '1px solid #dadce0'
+      border: '1px solid var(--surface-border)'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <span style={{ fontSize: '1.1rem' }}>{icon}</span>
-        <span style={{ fontSize: '0.75rem', color: '#1a73e8', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
       </div>
-      <div style={{ fontSize: '0.8rem', color: '#5f6368', lineHeight: 1.5 }}>{children}</div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{children}</div>
     </div>
   );
 }
@@ -58,6 +69,12 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showHelp, setShowHelp] = useState(false);
+  // El reporte PDF es un documento en papel blanco (texto #0d1117). Las
+  // graficas se pintan en tema oscuro, asi que al exportar hay que volver a
+  // pintarlas en claro o el PDF sale con 4 rectangulos negros.
+  const [pdfLight, setPdfLight] = useState(false);
+  const chartGrid = pdfLight ? '#e8eaed' : cssVar('--surface-border', '#1f2a26');
+  const chartRing = pdfLight ? '#ffffff' : cssVar('--card-bg', '#11191f');
 
   const trendRef = useRef<any>(null);
   const peakRef = useRef<any>(null);
@@ -97,6 +114,17 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Chart.js trae su propio tema CLARO (texto #666, bordes #e0e0e0). Sobre las
+  // tarjetas oscuras los ejes y las leyendas se pierden. Los defaults se leen
+  // del tema activo, asi que si algun dia hay tema claro, tambien funciona.
+  useEffect(() => {
+    ChartJS.defaults.color = pdfLight ? '#5f6368' : cssVar('--text-secondary', '#9ca3af');
+    ChartJS.defaults.borderColor = pdfLight ? '#e8eaed' : cssVar('--surface-border', '#1f2a26');
+    // Las graficas ya montadas no leen los defaults: hay que redibujarlas.
+    [trendRef, peakRef, weekdayRef, paymentRef, donutRef, paretoRef]
+      .forEach(r => r.current?.update());
+  }, [dashboardData, pdfLight]);
+
   const handleExportCSV = () => {
     if (!productsData?.productos) return;
     const BOM = '\uFEFF';
@@ -108,18 +136,24 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `FastFoodSV_Reporte_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
+    link.download = `easystem_Reporte_${periodo}_${new Date().toISOString().slice(0, 10)}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   };
 
   const handleExportPDF = async () => {
+    // Un frame para que React aplique pdfLight y Chart.js re-pinte.
+    const settle = () => new Promise(r => setTimeout(r, 250));
+    setPdfLight(true);
+    await settle();
     const refs = {
       trend: trendRef.current?.toBase64Image(),
       peakHours: peakRef.current?.toBase64Image(),
       donut: donutRef.current?.toBase64Image(),
       pareto: paretoRef.current?.toBase64Image(),
     };
+    setPdfLight(false);
+    await settle();
     await generateReportPDF(dashboardData, productsData, trendsData, refs);
   };
 
@@ -135,15 +169,15 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   }, [periodo]);
 
   if (loading) return (
-    <div style={{ padding: '60px', textAlign: 'center' }}>
-      <div style={{ width: '48px', height: '48px', border: '4px solid #e8f0fe', borderTopColor: '#1a73e8', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
-      <p style={{ color: '#5f6368', fontSize: '1rem' }}>Cargando tus estadísticas...</p>
+    <div style={{ padding: '40px 16px', textAlign: 'center' }}>
+      <div style={{ width: '48px', height: '48px', border: '4px solid var(--primary-surface)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '1rem' }}>Cargando tus estadísticas...</p>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
   
   if (error) return (
-    <div style={{ padding: '40px', textAlign: 'center', color: '#d93025', background: '#fce8e6', borderRadius: '12px', margin: '20px' }}>
+    <div style={{ padding: '40px', textAlign: 'center', color: 'var(--danger)', background: 'var(--danger-soft)', borderRadius: '12px', margin: '20px' }}>
       <div style={{ fontSize: '2rem', marginBottom: '8px' }}>⚠️</div>
       <div style={{ fontWeight: 600 }}>Error al cargar estadísticas</div>
       <div style={{ fontSize: '0.9rem', marginTop: '4px' }}>{error}</div>
@@ -218,7 +252,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       backgroundColor: COLORS.palette,
       hoverOffset: 8,
       borderWidth: 2,
-      borderColor: 'white'
+      borderColor: chartRing
     }]
   };
 
@@ -279,25 +313,29 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         type: 'bar' as const,
         label: 'Ingresos',
         data: top10.map((p: any) => p.ingresos),
-        backgroundColor: top10.map((p: any) => p.es_vital ? COLORS.success : '#cbd5e1'),
+        backgroundColor: top10.map((p: any) => p.es_vital ? COLORS.success : 'var(--surface-border)'),
         yAxisID: 'y'
       }
     ]
   };
 
   // Render
+  // El admin ya inyecta 16px laterales y minHeight/fondo: duplicarlos aquí dejaba
+  // solo 296px de contenido en un móvil de 360px y sumaba una pantalla extra de
+  // scroll. Por eso sin padding horizontal, sin minHeight y sin background propio
+  // (evita costura de color). Sin fontFamily hereda Roboto como el resto del admin.
   return (
-    <div style={{ padding: '16px', maxWidth: '1400px', margin: '0 auto', fontFamily: 'system-ui, sans-serif', background: '#f8f9fa', minHeight: '100vh' }}>
+    <div style={{ padding: '16px 0', maxWidth: '1400px', margin: '0 auto' }}>
       
       {/* ===================== HEADER ===================== */}
       <div style={{ 
-        background: 'linear-gradient(135deg, #1a3d2a 0%, #2d5a3f 50%, #137333 100%)', 
+        background: 'var(--primary-gradient)',
         borderRadius: '16px', padding: '24px', marginBottom: '20px', color: 'white',
         boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
           <div>
-            <h2 style={{ margin: 0, fontSize: '1.8rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h2 style={{ margin: 0, fontSize: 'clamp(1.15rem, 5vw, 1.8rem)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
               📊 Resumen de tu Restaurante
             </h2>
             <p style={{ margin: '8px 0 0 0', opacity: 0.9, fontSize: '0.95rem' }}>
@@ -313,7 +351,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
                   padding: '10px 20px', borderRadius: '24px', border: 'none', cursor: 'pointer',
                   fontWeight: 700, fontSize: '0.85rem', textTransform: 'capitalize',
                   background: periodo === p ? 'white' : 'rgba(255,255,255,0.15)',
-                  color: periodo === p ? '#137333' : 'white',
+                  color: periodo === p ? 'var(--primary)' : 'white',
                   transition: 'all 0.2s',
                   boxShadow: periodo === p ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
                 }}
@@ -326,121 +364,121 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       </div>
 
       {/* ===================== SMART INSIGHTS ===================== */}
-      <div style={{ background: 'linear-gradient(135deg, #fef7e1 0%, #fffbf0 100%)', padding: '24px', borderRadius: '16px', marginBottom: '24px', border: '1px solid #fce8b2', boxShadow: '0 4px 12px rgba(251,188,4,0.15)' }}>
-        <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', color: '#e37400', display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-soft) 100%)', padding: '24px', borderRadius: '16px', marginBottom: '24px', border: '1px solid var(--accent-soft)', boxShadow: '0 4px 12px rgba(217,119,6,0.15)' }}>
+        <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span>🧠</span> Inteligencia Analítica
         </h3>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '16px' }}>
           
-          <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #34a853', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#34a853', textTransform: 'uppercase', marginBottom: '4px' }}>Rotación Operativa</div>
-            <div style={{ fontSize: '0.95rem', color: '#202124' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid var(--primary)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', marginBottom: '4px' }}>Rotación Operativa</div>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
               {turnoverPromedio > 0 
                 ? <>En promedio cada mesa tarda <strong>{Math.round(turnoverPromedio)} minutos</strong>. {turnoverPromedio > 90 ? ' Considera agilizar el servicio en turnos fuertes.' : ' ¡Excelente ritmo de atención!'}</>
                 : 'Todavía no hay suficientes datos para medir la velocidad de las mesas.'}
             </div>
           </div>
 
-          <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #1a73e8', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#1a73e8', textTransform: 'uppercase', marginBottom: '4px' }}>Mejores Oportunidades</div>
-            <div style={{ fontSize: '0.95rem', color: '#202124' }}>
+          <div style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid var(--primary)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+            <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--primary)', textTransform: 'uppercase', marginBottom: '4px' }}>Mejores Oportunidades</div>
+            <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>
               Tu pico de ventas ocurre a las <strong>{peakHour ? peakHour.hora : '00'}:00</strong>. Asegúrate de tener al staff preparado a esa hora.
               {bestDay && <> Tu mejor día históricamente ha sido el <strong>{DAYS_ES[bestDay.dia_num] || bestDay.dia}</strong>.</>}
             </div>
           </div>
 
           {topCrossSell && (
-            <div style={{ background: 'white', padding: '16px', borderRadius: '12px', borderLeft: '4px solid #9334e6', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#9334e6', textTransform: 'uppercase', marginBottom: '4px' }}>Potencial de Combo</div>
-              <div style={{ fontSize: '0.95rem', color: '#202124' }}>El <strong>{topCrossSell.producto_a.substring(0,25)}</strong> se vende mucho junto con <strong>{topCrossSell.producto_b.substring(0,25)}</strong>. ¡Anima a los meseros a ofrecerlos juntos!</div>
+            <div style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', borderLeft: '4px solid var(--accent)', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
+              <div style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '4px' }}>Potencial de Combo</div>
+              <div style={{ fontSize: '0.95rem', color: 'var(--text-primary)' }}>El <strong>{topCrossSell.producto_a.substring(0,25)}</strong> se vende mucho junto con <strong>{topCrossSell.producto_b.substring(0,25)}</strong>. ¡Anima a los meseros a ofrecerlos juntos!</div>
             </div>
           )}
         </div>
       </div>
 
       {/* ===================== KPI CARDS ===================== */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px', marginBottom: '24px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))', gap: '16px', marginBottom: '24px' }}>
         
-        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>💰 Ventas Totales</div>
-              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#137333', marginTop: '4px' }}>{formatColones(kpis.ingresos_totales)}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>💰 Ventas Totales</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{formatColones(kpis.ingresos_totales)}</div>
             </div>
             <div style={{ 
-              background: comparativa.pct_cambio_ingresos >= 0 ? '#e6f4ea' : '#fce8e6',
-              color: comparativa.pct_cambio_ingresos >= 0 ? '#137333' : '#d93025',
+              background: comparativa.pct_cambio_ingresos >= 0 ? 'var(--primary-surface)' : 'var(--danger-soft)',
+              color: comparativa.pct_cambio_ingresos >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
               {comparativa.pct_cambio_ingresos >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ingresos)}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>vs. período anterior</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>vs. período anterior</div>
         </div>
 
-        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🧾 Total de Comandas</div>
-              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#1a73e8', marginTop: '4px' }}>{kpis.total_ordenes}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🧾 Total de Comandas</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{kpis.total_ordenes}</div>
             </div>
             <div style={{ 
-              background: comparativa.pct_cambio_ordenes >= 0 ? '#e6f4ea' : '#fce8e6',
-              color: comparativa.pct_cambio_ordenes >= 0 ? '#137333' : '#d93025',
+              background: comparativa.pct_cambio_ordenes >= 0 ? 'var(--primary-surface)' : 'var(--danger-soft)',
+              color: comparativa.pct_cambio_ordenes >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
               {comparativa.pct_cambio_ordenes >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ordenes)}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>clientes atendidos</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>clientes atendidos</div>
         </div>
 
-        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
             <div>
-              <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🎯 Cuenta Promedio</div>
-              <div style={{ fontSize: '2rem', fontWeight: 800, color: '#9334e6', marginTop: '4px' }}>{formatColones(kpis.ticket_promedio)}</div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🎯 Cuenta Promedio</div>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{formatColones(kpis.ticket_promedio)}</div>
             </div>
             <div style={{ 
-              background: comparativa.pct_cambio_ticket >= 0 ? '#e6f4ea' : '#fce8e6',
-              color: comparativa.pct_cambio_ticket >= 0 ? '#137333' : '#d93025',
+              background: comparativa.pct_cambio_ticket >= 0 ? 'var(--primary-surface)' : 'var(--danger-soft)',
+              color: comparativa.pct_cambio_ticket >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
               {comparativa.pct_cambio_ticket >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ticket)}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>por cliente</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>por cliente</div>
         </div>
 
-        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div>
-            <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚡ Velocidad</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#e37400', marginTop: '4px' }}>{kpis.ordenes_por_dia}</div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⚡ Velocidad</div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>{kpis.ordenes_por_dia}</div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
             comandas/día <span style={{ color: kpis.coef_variacion > 50 ? COLORS.danger : COLORS.success, fontWeight: 600 }}>
               (variación: {kpis.coef_variacion}%)
             </span>
           </div>
         </div>
 
-        <div style={{ background: 'white', padding: '20px', borderRadius: '16px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div>
-            <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⏱️ Tiempo en Mesa</div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: '#00bcd4', marginTop: '4px' }}>{Math.round(turnoverPromedio)}<span style={{fontSize: '1rem'}}>'</span></div>
+            <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>⏱️ Tiempo en Mesa</div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>{Math.round(turnoverPromedio)}<span style={{fontSize: '1rem'}}>'</span></div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: '#80868b', marginTop: '8px' }}>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
             promedio general de min.
           </div>
         </div>
       </div>
 
       {/* ===================== SECCIÓN: TENDENCIA ===================== */}
-      <div style={{ background: 'white', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📈 Evolución de tus Ingresos</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Muestra cómo han cambiado tus ventas día a día</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📈 Evolución de tus Ingresos</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Muestra cómo han cambiado tus ventas día a día</p>
           </div>
         </div>
         <div style={{ height: '280px' }}>
@@ -449,7 +487,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-              y: { beginAtZero: true, grid: { color: '#f1f3f4' } },
+              y: { beginAtZero: true, grid: { color: chartGrid } },
               x: { grid: { display: false } }
             },
             interaction: { intersect: false, mode: 'index' }
@@ -458,19 +496,19 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       </div>
 
       {/* ===================== GRID 2 COLUMNAS ===================== */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(350px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
         
         {/* HORAS PICO */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#202124', fontWeight: 700 }}>⏰ Horas de Mayor Movimiento</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#5f6368' }}>Aprovechá estos horarios</p>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>⏰ Horas de Mayor Movimiento</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Aprovechá estos horarios</p>
             </div>
             {peakHour && (
-              <div style={{ background: '#fef3e2', padding: '8px 12px', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '0.65rem', color: '#e37400', fontWeight: 600, textTransform: 'uppercase' }}>Mejor hora</div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: '#e37400' }}>{peakHour.hora}:00</div>
+              <div style={{ background: 'var(--accent-soft)', padding: '8px 12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--accent)', fontWeight: 600, textTransform: 'uppercase' }}>Mejor hora</div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--accent)' }}>{peakHour.hora}:00</div>
               </div>
             )}
           </div>
@@ -479,7 +517,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, grid: { color: '#f1f3f4' } }, x: { grid: { display: false } } }
+              scales: { y: { beginAtZero: true, grid: { color: chartGrid } }, x: { grid: { display: false } } }
             }} />
           </div>
           <TooltipCard icon="💡" title="Consejo">
@@ -488,16 +526,16 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* DÍAS DE LA SEMANA */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#202124', fontWeight: 700 }}>📅 Desempeño por Día</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: '#5f6368' }}>Qué días van mejor</p>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>📅 Desempeño por Día</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Qué días van mejor</p>
             </div>
             {bestDay && (
-              <div style={{ background: '#e6f4ea', padding: '8px 12px', borderRadius: '8px', textAlign: 'center' }}>
-                <div style={{ fontSize: '0.65rem', color: '#137333', fontWeight: 600, textTransform: 'uppercase' }}>Mejor día</div>
-                <div style={{ fontSize: '1rem', fontWeight: 800, color: '#137333' }}>{DAYS_ES[bestDay.dia_num] || bestDay.dia}</div>
+              <div style={{ background: 'var(--primary-surface)', padding: '8px 12px', borderRadius: '8px', textAlign: 'center' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--primary)', fontWeight: 600, textTransform: 'uppercase' }}>Mejor día</div>
+                <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--primary)' }}>{DAYS_ES[bestDay.dia_num] || bestDay.dia}</div>
               </div>
             )}
           </div>
@@ -506,7 +544,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, grid: { color: '#f1f3f4' } }, x: { grid: { display: false } } }
+              scales: { y: { beginAtZero: true, grid: { color: chartGrid } }, x: { grid: { display: false } } }
             }} />
           </div>
           <TooltipCard icon="💡" title="Consejo">
@@ -515,9 +553,9 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* MÉTODOS DE PAGO */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#202124', fontWeight: 700, marginBottom: '4px' }}>💳 Cómo Pagan tus Clientes</h3>
-          <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: '#5f6368' }}>Distribución de formas de pago</p>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '4px' }}>💳 Cómo Pagan tus Clientes</h3>
+          <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Distribución de formas de pago</p>
           <div style={{ height: '200px', display: 'flex', justifyContent: 'center' }}>
             <Doughnut ref={paymentRef} data={paymentData} options={{
               responsive: true,
@@ -532,7 +570,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
             {trendsData.payments?.map((p: any, i: number) => (
               <div key={p.metodo} style={{ 
                 display: 'flex', alignItems: 'center', gap: '6px',
-                background: '#f8f9fa', padding: '6px 12px', borderRadius: '20px',
+                background: 'var(--surface)', padding: '6px 12px', borderRadius: '20px',
                 fontSize: '0.75rem', fontWeight: 600
               }}>
                 <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray][i] }}></div>
@@ -543,9 +581,9 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* CATEGORÍAS */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#202124', fontWeight: 700, marginBottom: '4px' }}>🍽️ Qué se Vende Más</h3>
-          <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: '#5f6368' }}>Por categoría de producto</p>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '4px' }}>🍽️ Qué se Vende Más</h3>
+          <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Por categoría de producto</p>
           <div style={{ height: '200px' }}>
             <Doughnut ref={donutRef} data={donutData} options={{
               responsive: true,
@@ -561,48 +599,48 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       </div>
 
       {/* ===================== TOP PRODUCTOS ===================== */}
-      <div style={{ background: 'white', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>🏆 Tus Productos Estrella</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Los 10 productos que más generan ingresos</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🏆 Tus Productos Estrella</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los 10 productos que más generan ingresos</p>
           </div>
-          <div style={{ background: '#e6f4ea', padding: '8px 16px', borderRadius: '8px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#137333', fontWeight: 600 }}>10 productos = {Math.round(top10.reduce((s: number, p: any) => s + p.pct_individual, 0))}% de ventas</span>
+          <div style={{ background: 'var(--primary-surface)', padding: '8px 16px', borderRadius: '8px' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>10 productos = {Math.round(top10.reduce((s: number, p: any) => s + p.pct_individual, 0))}% de ventas</span>
           </div>
         </div>
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '24px' }}>
           <div style={{ height: '320px' }}>
             <Bar data={topProductsData} options={{
               indexAxis: 'y',
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { display: false } },
-              scales: { x: { beginAtZero: true, grid: { color: '#f1f3f4' } }, y: { grid: { display: false } } }
+              scales: { x: { beginAtZero: true, grid: { color: chartGrid } }, y: { grid: { display: false } } }
             }} />
           </div>
           
           <div>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
-                <tr style={{ borderBottom: '2px solid #f1f3f4' }}>
-                  <th style={{ textAlign: 'left', padding: '10px 8px', color: '#5f6368', fontWeight: 600 }}>#</th>
-                  <th style={{ textAlign: 'left', padding: '10px 8px', color: '#5f6368', fontWeight: 600 }}>Producto</th>
-                  <th style={{ textAlign: 'right', padding: '10px 8px', color: '#5f6368', fontWeight: 600 }}>Vendidos</th>
-                  <th style={{ textAlign: 'right', padding: '10px 8px', color: '#5f6368', fontWeight: 600 }}>Ingresos</th>
+                <tr style={{ borderBottom: '2px solid var(--surface)' }}>
+                  <th style={{ textAlign: 'left', padding: '10px 8px', color: 'var(--text-secondary)', fontWeight: 600 }}>#</th>
+                  <th style={{ textAlign: 'left', padding: '10px 8px', color: 'var(--text-secondary)', fontWeight: 600 }}>Producto</th>
+                  <th style={{ textAlign: 'right', padding: '10px 8px', color: 'var(--text-secondary)', fontWeight: 600 }}>Vendidos</th>
+                  <th style={{ textAlign: 'right', padding: '10px 8px', color: 'var(--text-secondary)', fontWeight: 600 }}>Ingresos</th>
                 </tr>
               </thead>
               <tbody>
                 {top10.map((p: any, i: number) => (
-                  <tr key={p.producto} style={{ borderBottom: '1px solid #f1f3f4' }}>
-                    <td style={{ padding: '10px 8px', fontWeight: 700, color: p.es_vital ? '#137333' : '#5f6368' }}>{i + 1}</td>
+                  <tr key={p.producto} style={{ borderBottom: '1px solid var(--surface)' }}>
+                    <td style={{ padding: '10px 8px', fontWeight: 700, color: p.es_vital ? 'var(--primary)' : 'var(--text-secondary)' }}>{i + 1}</td>
                     <td style={{ padding: '10px 8px' }}>
-                      <span style={{ fontWeight: 600, color: '#202124' }}>{p.producto}</span>
-                      {p.es_vital && <span style={{ marginLeft: '6px', fontSize: '0.65rem', background: '#e6f4ea', color: '#137333', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>VITAL</span>}
+                      <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{p.producto}</span>
+                      {p.es_vital && <span style={{ marginLeft: '6px', fontSize: '0.65rem', background: 'var(--primary-surface)', color: 'var(--primary)', padding: '2px 6px', borderRadius: '4px', fontWeight: 700 }}>VITAL</span>}
                     </td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', color: '#5f6368' }}>{p.unidades_vendidas}</td>
-                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: '#137333' }}>{formatColones(p.ingresos)}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right', color: 'var(--text-secondary)' }}>{p.unidades_vendidas}</td>
+                    <td style={{ padding: '10px 8px', textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{formatColones(p.ingresos)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -612,11 +650,11 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       </div>
 
       {/* ===================== PARETO ===================== */}
-      <div style={{ background: 'white', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
           <div>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📊 Análisis 80/20 (Pareto)</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📊 Análisis 80/20 (Pareto)</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
               ¿Cuántos productos generan la mayoría de tus ingresos?
             </p>
           </div>
@@ -633,7 +671,7 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
               legend: { display: true, position: 'top' }
             },
             scales: {
-              y: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: '#f1f3f4' } },
+              y: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: chartGrid } },
               y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, min: 0, max: 100 }
             }
           }} />
@@ -641,33 +679,33 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       </div>
 
       {/* ===================== NEW SECTIONS: Market Basket & Table Turnover ===================== */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(400px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(400px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
         
         {/* CROSS-SELLING (MARKET BASKET) */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>🛒 Productos Comprados Juntos</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Los "Combos Naturales" de tus clientes</p>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🛒 Productos Comprados Juntos</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los "Combos Naturales" de tus clientes</p>
             </div>
             <TooltipCard icon="💡" title="Upselling">
               Entrena a tus meseros para ofrecer mágicamente el Segundo cuando el cliente pide el Primero.
             </TooltipCard>
           </div>
           {trendsData.basket?.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Aún no hay suficientes datos históricos.</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Aún no hay suficientes datos históricos.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '300px', overflowY: 'auto', paddingRight: '8px' }}>
               {trendsData.basket?.slice(0,8).map((b: any, i: number) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#f8f9fa', borderRadius: '8px', border: '1px solid #f1f3f4' }}>
+                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--surface)' }}>
                   <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ flex: 1, textAlign: 'right', fontWeight: 700, color: '#1a73e8', fontSize: '0.85rem' }}>{b.producto_a.length > 22 ? b.producto_a.substring(0,20)+'..' : b.producto_a}</div>
-                    <div style={{ background: '#e8f0fe', padding: '4px', borderRadius: '50%', color: '#1a73e8', display: 'flex', flexShrink: 0 }}>
+                    <div style={{ flex: 1, textAlign: 'right', fontWeight: 700, color: 'var(--primary)', fontSize: '0.85rem' }}>{b.producto_a.length > 22 ? b.producto_a.substring(0,20)+'..' : b.producto_a}</div>
+                    <div style={{ background: 'var(--primary-surface)', padding: '4px', borderRadius: '50%', color: 'var(--primary)', display: 'flex', flexShrink: 0 }}>
                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
                     </div>
-                    <div style={{ flex: 1, textAlign: 'left', fontWeight: 700, color: '#1a73e8', fontSize: '0.85rem' }}>{b.producto_b.length > 22 ? b.producto_b.substring(0,20)+'..' : b.producto_b}</div>
+                    <div style={{ flex: 1, textAlign: 'left', fontWeight: 700, color: 'var(--primary)', fontSize: '0.85rem' }}>{b.producto_b.length > 22 ? b.producto_b.substring(0,20)+'..' : b.producto_b}</div>
                   </div>
-                  <div style={{ marginLeft: '16px', background: 'white', border: '1px solid #dadce0', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800, color: '#5f6368', flexShrink: 0 }}>
+                  <div style={{ marginLeft: '16px', background: 'var(--card-bg)', border: '1px solid var(--surface-border)', padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', flexShrink: 0 }}>
                     {b.frecuencia} veces
                   </div>
                 </div>
@@ -677,15 +715,15 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* TIEMPOS DE MESA (TABLE TURNOVER) */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <div>
-              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>⏳ Rapidez por Mesa</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Minutos desde la creación hasta el Check-out</p>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>⏳ Rapidez por Mesa</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Minutos desde la creación hasta el Check-out</p>
             </div>
           </div>
           {validTurnovers.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>No hay registros de tiempo en mesa.</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>No hay registros de tiempo en mesa.</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', maxHeight: '300px', overflowY: 'auto' }}>
               {validTurnovers.map((t: any, i: number) => {
@@ -695,15 +733,15 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
                 const isFast = t.mins_promedio < turnoverPromedio * 0.65;
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '70px', fontSize: '0.85rem', fontWeight: 700, color: '#5f6368' }}>Mesa {t.mesa}</div>
-                    <div style={{ flex: 1, background: '#f1f3f4', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
+                    <div style={{ width: '70px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Mesa {t.mesa}</div>
+                    <div style={{ flex: 1, background: 'var(--surface)', height: '8px', borderRadius: '4px', overflow: 'hidden' }}>
                       <div style={{ 
                         height: '100%', width: `${pct}%`, 
                         background: isSlow ? COLORS.danger : (isFast ? COLORS.success : COLORS.primary),
                         borderRadius: '4px'
                       }}></div>
                     </div>
-                    <div style={{ width: '60px', textAlign: 'right', fontSize: '0.9rem', fontWeight: 800, color: isSlow ? COLORS.danger : '#202124' }}>
+                    <div style={{ width: '60px', textAlign: 'right', fontSize: '0.9rem', fontWeight: 800, color: isSlow ? COLORS.danger : 'var(--text-primary)' }}>
                       {t.mins_promedio}m
                     </div>
                   </div>
@@ -714,13 +752,13 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* ===================== ANÁLISIS POR CATEGORÍA ===================== */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📊 Desglose por Categoría</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Participación de ingresos por categoría</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📊 Desglose por Categoría</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Participación de ingresos por categoría</p>
           </div>
           {categoryData.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {categoryData.slice(0, 8).map((cat: any, i: number) => {
@@ -728,8 +766,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
                 const pct = Math.round((cat.ingresos / maxIng) * 100);
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '120px', fontSize: '0.85rem', fontWeight: 600, color: '#5f6368' }}>{cat.categoria}</div>
-                    <div style={{ flex: 1, background: '#f1f3f4', height: '12px', borderRadius: '6px', overflow: 'hidden' }}>
+                    <div style={{ width: '120px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{cat.categoria}</div>
+                    <div style={{ flex: 1, background: 'var(--surface)', height: '12px', borderRadius: '6px', overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: COLORS.palette[i % COLORS.palette.length], borderRadius: '6px' }}></div>
                     </div>
                     <div style={{ width: '80px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 700 }}>{cat.pct_participacion?.toFixed(1)}%</div>
@@ -741,20 +779,20 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* ===================== DISTRIBUCIÓN DE TICKET ===================== */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>💵 Distribución de Ticket</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Rangos de consumo por orden</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>💵 Distribución de Ticket</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Rangos de consumo por orden</p>
           </div>
           {ticketDist.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(140px, 100%), 1fr))', gap: '12px' }}>
               {ticketDist.map((t: any, i: number) => (
-                <div key={i} style={{ textAlign: 'center', padding: '16px', background: '#f8f9fa', borderRadius: '12px' }}>
+                <div key={i} style={{ textAlign: 'center', padding: '16px', background: 'var(--surface)', borderRadius: '12px' }}>
                   <div style={{ fontSize: '1.1rem', fontWeight: 800, color: COLORS.palette[i % COLORS.palette.length] }}>{t.rango}</div>
-                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#202124', marginTop: '4px' }}>{t.ordenes}</div>
-                  <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>órdenes ({t.pct_ordenes}%)</div>
+                  <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '4px' }}>{t.ordenes}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>órdenes ({t.pct_ordenes}%)</div>
                 </div>
               ))}
             </div>
@@ -762,13 +800,13 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* ===================== RETENCIÓN DE CLIENTES ===================== */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>🔄 Fidelización de Clientes</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Segmentación por frecuencia de visita</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🔄 Fidelización de Clientes</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Segmentación por frecuencia de visita</p>
           </div>
           {retentionData.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
               {retentionData.map((r: any, i: number) => {
@@ -783,8 +821,8 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
                     minWidth: '140px'
                   }}>
                     <div style={{ fontSize: '0.7rem', fontWeight: 700, color: colors[i % colors.length], textTransform: 'uppercase' }}>{r.segmento}</div>
-                    <div style={{ fontSize: '1.8rem', fontWeight: 800, color: '#202124' }}>{r.clientes}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>{r.ordenes} órdenes · {formatColones(r.ingresos)}</div>
+                    <div style={{ fontSize: '1.8rem', fontWeight: 800, color: 'var(--text-primary)' }}>{r.clientes}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{r.ordenes} órdenes · {formatColones(r.ingresos)}</div>
                   </div>
                 );
               })}
@@ -793,27 +831,27 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
         </div>
 
         {/* ===================== TENDENCIAS DE PRODUCTOS ===================== */}
-        <div style={{ background: 'white', borderRadius: '16px', padding: '24px', border: '1px solid #e8eaed', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#202124', fontWeight: 700 }}>📈 Productos en Tendencia</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#5f6368' }}>Análisis de comportamiento de ventas</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📈 Productos en Tendencia</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Análisis de comportamiento de ventas</p>
           </div>
           {productTrends.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: '#80868b' }}>Sin datos</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {productTrends.slice(0, 10).map((p: any, i: number) => {
                 const tendenciaColor = p.tendencia === 'subiendo' ? COLORS.success : (p.tendencia === 'bajando' ? COLORS.danger : COLORS.gray);
                 const tendenciaIcon = p.tendencia === 'subiendo' ? '📈' : (p.tendencia === 'bajando' ? '📉' : '➡️');
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: '#f8f9fa', borderRadius: '8px' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
                     <span style={{ fontSize: '1.2rem' }}>{tendenciaIcon}</span>
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{p.producto?.substring(0,30)}</div>
-                      <div style={{ fontSize: '0.75rem', color: '#5f6368' }}>{p.categoria} · {p.unidades} unidades</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.categoria} · {p.unidades} unidades</div>
                     </div>
                     <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: '#137333' }}>{formatColones(p.ingresos)}</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--primary)' }}>{formatColones(p.ingresos)}</div>
                       <div style={{ fontSize: '0.7rem', color: tendenciaColor, fontWeight: 600 }}>{p.tendencia.toUpperCase()}</div>
                     </div>
                   </div>
@@ -825,16 +863,16 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
 
         {/* ===================== MÉTRICAS DE VELOCIDAD ===================== */}
         {speedMetrics.length > 0 && (
-          <div style={{ background: 'linear-gradient(135deg, #e8f5e9 0%, #c8e6c9 100%)', borderRadius: '16px', padding: '24px', border: '1px solid #a5d6a7', boxShadow: '0 4px 12px rgba(52,168,83,0.15)' }}>
+          <div style={{ background: 'linear-gradient(135deg, var(--primary-surface) 0%, var(--primary-glow) 100%)', borderRadius: '16px', padding: '24px', border: '1px solid var(--primary)', boxShadow: '0 4px 12px rgba(52,168,83,0.15)' }}>
             <div style={{ marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.2rem', color: '#1b5e20', fontWeight: 700 }}>⚡ Métricas de Rendimiento</h3>
-              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: '#2e7d32' }}>KPIs operativos del período</p>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--primary)', fontWeight: 700 }}>⚡ Métricas de Rendimiento</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>KPIs operativos del período</p>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '16px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))', gap: '16px' }}>
               {speedMetrics.map((m: any, i: number) => (
-                <div key={i} style={{ background: 'white', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
-                  <div style={{ fontSize: '0.7rem', color: '#5f6368', fontWeight: 600, textTransform: 'uppercase' }}>{m.descripcion}</div>
-                  <div style={{ fontSize: '2rem', fontWeight: 800, color: '#137333', marginTop: '4px' }}>
+                <div key={i} style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{m.descripcion}</div>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>
                     {m.metric === 'órdenes_día' || m.metric === 'ingresos_día' || m.metric === 'ticket_promedio' 
                       ? (m.metric === 'ticket_promedio' ? formatColones(m.valor) : formatColones(m.valor))
                       : Math.round(m.valor)}
@@ -850,17 +888,17 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
       {/* ===================== BOTONES EXPORT ===================== */}
       <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px', paddingBottom: '40px' }}>
         <button onClick={handleExportCSV} style={{ 
-          padding: '14px 28px', borderRadius: '12px', border: '2px solid #1a73e8', 
-          background: 'white', cursor: 'pointer', fontWeight: 700, color: '#1a73e8',
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem'
+          padding: '14px 28px', borderRadius: '12px', border: '2px solid var(--primary)', 
+          background: 'var(--card-bg)', cursor: 'pointer', fontWeight: 700, color: 'var(--primary)',
+          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px'
         }}>
           📥 Exportar Excel
         </button>
         <button onClick={handleExportPDF} style={{ 
           padding: '14px 28px', borderRadius: '12px', border: 'none', 
-          background: 'linear-gradient(135deg, #1a73e8, #1557b0)', cursor: 'pointer', fontWeight: 700, color: 'white',
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem',
-          boxShadow: '0 4px 12px rgba(26,115,232,0.3)'
+          background: 'var(--primary-gradient)', cursor: 'pointer', fontWeight: 700, color: 'white',
+          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px',
+          boxShadow: '0 4px 12px rgba(4,120,87,0.3)'
         }}>
           📄 Generar Reporte PDF
         </button>

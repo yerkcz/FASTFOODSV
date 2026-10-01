@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { formatTime, getTimeColor, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
 import { isHotDrink } from "@/lib/kdsFilters";
+import { beep, useUnlockOnFirstGesture } from "@/lib/kdsSound";
 
 type OrderItem = {
   id: string;
@@ -19,6 +20,12 @@ export default function BebidasCalientesPage() {
   const [items, setItems] = useState<OrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [marking, setMarking] = useState<string | null>(null);
+  // Contador de items en cola + flag de "ya leí el estado inicial". El primer
+  // poll no debe sonar: al abrir la pantalla ya hay pedidos y eso no es nuevo.
+  const lastCount = useRef(0);
+  const primed = useRef(false);
+
+  useUnlockOnFirstGesture();
 
   const fetchItems = useCallback(async () => {
     try {
@@ -33,6 +40,11 @@ export default function BebidasCalientesPage() {
             }
           });
         });
+        if (primed.current && filtered.length > lastCount.current) {
+          beep();
+        }
+        primed.current = true;
+        lastCount.current = filtered.length;
         setItems(filtered);
       }
     } catch (err) { console.error(err); }

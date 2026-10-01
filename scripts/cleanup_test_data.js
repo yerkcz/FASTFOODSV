@@ -5,7 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const envTxt = fs.readFileSync(path.join(__dirname, '..', 'demo-pos', '.env.local'), 'utf8');
+const envTxt = fs.readFileSync(path.join(__dirname, '..', '.env.local'), 'utf8');
 const env = {};
 envTxt.split('\n').filter(l => l.trim() && !l.startsWith('#')).forEach(l => {
   const [k, ...v] = l.split('=');

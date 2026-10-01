@@ -1,5 +1,5 @@
 import { NextRequest } from 'next/server';
-import { getServerSupabase, jsonError, jsonOk, isValidAdminKey } from '@/lib/supabase/server-api';
+import { getServerSupabase, jsonError, jsonOk, isValidAdminKey, getCRDate } from '@/lib/supabase/server-api';
 
 async function fetchItemsSnapshot(
   supabase: any,
@@ -27,7 +27,46 @@ async function fetchItemsSnapshot(
   }));
 }
 
+/**
+ * Suma REAL de los items de una orden, replicando exactamente el filtro del
+ * trigger `recalcular_total_orden`: `estado_kds != 'cancelado'`.
+ *
+ * Ojo con el NULL: en SQL `NULL != 'cancelado'` evalua NULL, y una fila que no
+ * cumple la condicion NO se suma. Por eso aca tambien se descartan los null,
+ * no solo los 'cancelado'. Si este helper no replica eso, el guard de abajo
+ * daria 409 en ordenes perfectamente sanas.
+ */
+async function sumaRealOrden(supabase: any, ordenId: string): Promise<number> {
+  const { data } = await supabase
+    .from('orden_items')
+    .select('subtotal, estado_kds')
+    .eq('orden_id', ordenId) as { data: any[]; error: any };
+  return (data || [])
+    .filter((i: any) => i.estado_kds !== 'cancelado' && i.estado_kds != null)
+    .reduce((s: number, i: any) => s + Number(i.subtotal || 0), 0);
+}
+
+/**
+ * Deshace pagos/comprobantes insertados en este request. El flujo de cobro
+ * hace varios inserts sin transaccion (Supabase REST no las soporta aqui);
+ * sin esto un fallo a medio camino deja dinero cobrado sin comprobante.
+ */
+async function rollback(supabase: any, pagos: string[], comprobantes: string[]) {
+  if (comprobantes.length > 0) {
+    await (supabase.from('comprobantes') as any).delete().in('id', comprobantes);
+  }
+  if (pagos.length > 0) {
+    await (supabase.from('pagos') as any).delete().in('id', pagos);
+  }
+}
+
 export async function POST(request: NextRequest) {
+  // Rollback manual: si algo falla DESPUES de insertar pagos, se deshace todo lo
+  // insertado. Sin esto un fallo a medio camino deja pagos sin comprobante
+  // (dinero cobrado sin receipt) o comprobantes sin items.
+  const pagosInsertados: string[] = [];
+  const comprobantesInsertados: string[] = [];
+
   try {
     if (!isValidAdminKey(request.headers)) return jsonError('No autorizado', 401);
 
@@ -53,31 +92,118 @@ export async function POST(request: NextRequest) {
 
     if (ordenesACerrar.length === 0) return jsonError('No hay órdenes abiertas para cerrar');
 
-    const formaPagoRaw = (body.forma_pago || body.pagos?.[0]?.forma_pago || 'Efectivo').toLowerCase();
+    // Idempotencia: nunca re-cobrar una orden ya cerrada. Sin esto, un doble
+    // tap o un retry del fetch generaba un segundo pago por la misma orden.
+    const { data: estadoOrdenes, error: errEstado } = await supabase
+      .from('ordenes')
+      .select('id, estado, total')
+      .in('id', ordenesACerrar) as { data: any[]; error: any };
+    if (errEstado) throw errEstado;
+
+    const noEncontradas = ordenesACerrar.filter(
+      (id) => !estadoOrdenes?.some((o: any) => o.id === id)
+    );
+    if (noEncontradas.length > 0) return jsonError('La orden no existe', 404);
+
+    const yaCerradas = ordenesACerrar.filter(
+      (id) => estadoOrdenes?.find((o: any) => o.id === id)?.estado !== 'abierta'
+    );
+    if (yaCerradas.length > 0) return jsonError('La orden ya fue cobrada', 409);
+
+    const formaPagoRaw = (body.forma_pago || 'Efectivo').toLowerCase();
     const FORMAS_VALIDAS = ['efectivo', 'tarjeta', 'sinpe', 'mixto'];
     if (!FORMAS_VALIDAS.includes(formaPagoRaw)) {
       return jsonError(`forma_pago inválida: '${formaPagoRaw}'. Válidas: ${FORMAS_VALIDAS.join(', ')}`);
     }
     const formaPago = formaPagoRaw;
-    const pagosArray = body.pagos || [];
     const montoRecibido = body.recibido ? Number(body.recibido) : 0;
 
     if (montoRecibido < 0 || Number.isNaN(montoRecibido)) {
       return jsonError('recibido debe ser número positivo');
     }
 
-    const getNextNum = async (): Promise<number> => {
-      try {
-        const { data: rpcNum } = await supabase.rpc('get_siguiente_numero_comprobante');
-        if (typeof rpcNum === 'number') return rpcNum;
-      } catch {}
-      return 1;
+    /**
+     * GUARD DE COHERENCIA — antes de tocar un colón.
+     *
+     * `ordenes.total` lo mantiene el trigger de la DB, no este código. Si se
+     * desincroniza de sus propios items, la caja cobra una cifra vieja con
+     * toda confianza: el cajero pide ₡7,800, el cliente debe ₡6,000, y la
+     * diferencia se nota hasta el cierre del día.
+     *
+     * Por eso el monto se deriva SIEMPRE de los items (verdad de terreno) y
+     * `ordenes.total` solo se usa para compararse. Si no cuadran, se RECHAZA
+     * con 409: preferimos bloquear un cobro que la dueña resuelva en 5
+     * segundos, antes que cobrar de más en silencio.
+     *
+     * Cubre las dos ramas (cierre completo y cobro parcial) porque va antes
+     * del `if (itemIds...)`.
+     */
+    const montosReales: Record<string, number> = {};
+    const desviados: string[] = [];
+    for (const ordenId of ordenesACerrar) {
+      const suma = await sumaRealOrden(supabase, ordenId);
+      montosReales[ordenId] = suma;
+      const guardado = Number(estadoOrdenes?.find((o: any) => o.id === ordenId)?.total ?? 0);
+      if (Math.abs(suma - guardado) > 0.01) {
+        desviados.push(ordenId);
+        console.error(
+          `close-table BLOQUEADO: orden ${ordenId} tiene total=${guardado} ` +
+          `pero sus items suman ${suma}. No se cobra un numero desincronizado.`
+        );
+      }
+    }
+    if (desviados.length > 0) {
+      const detalle = desviados
+        .map((id) => {
+          const guardado = Number(estadoOrdenes?.find((o: any) => o.id === id)?.total ?? 0);
+          return `${id.slice(0, 8)}: total ₡${guardado} vs items ₡${montosReales[id]}`;
+        })
+        .join(' | ');
+      return jsonError(
+        `Total de la orden no coincide con sus items (${detalle}). ` +
+        `Revisar la mesa antes de cobrar.`,
+        409
+      );
+    }
+
+    console.log(
+      `close-table: item_ids=${JSON.stringify(itemIds)} ` +
+      `ordenes=${JSON.stringify(ordenesACerrar)} ` +
+      `montos=${JSON.stringify(montosReales)} recibido=${montoRecibido}`
+    );
+
+    /**
+     * Siguiente consecutivo del día EN COSTA RICA (fecha + numero).
+     *
+     * El RPC usa `current_date` = fecha del SERVIDOR (UTC). Entre 6pm y medianoche
+     * CR eso ya es el día siguiente, así que la numeración reiniciaba a las 6pm.
+     * Además `comprobantes.fecha` también defaultea a `current_date` (UTC): si
+     * solo se arregla el RPC, el INSERT cae en el bucket equivocado y choca con
+     * `unique (fecha, numero)`. Por eso se pasan LAS DOS fechas en CR.
+     *
+     * Falla loudly: el fallback anterior `return 1` colisionaba en silencio y
+     * dejaba pagos insertados sin comprobante.
+     */
+    const getNextComprobante = async (): Promise<{ fecha: string; numero: number }> => {
+      const fecha = getCRDate().toISOString().slice(0, 10);
+      // ponytail: `supabase.rpc` no tiene tipos generados para esta DB, casteo.
+      const { data, error } = await (supabase.rpc as any)('get_siguiente_numero_comprobante', {
+        p_fecha: fecha,
+      }) as { data: unknown; error: any };
+      if (error) {
+        throw new Error(`No se pudo generar el consecutivo del comprobante: ${error.message}`);
+      }
+      if (typeof data !== 'number') {
+        throw new Error(`El RPC devolvió un consecutivo inválido: ${JSON.stringify(data)}`);
+      }
+      return { fecha, numero: data };
     };
 
     const closeOrden = async (ordenId: string) => {
-      await (supabase.from('ordenes') as any)
+      const { error } = await (supabase.from('ordenes') as any)
         .update({ estado: 'cerrada', closed_at: new Date().toISOString() })
-        .eq('id', ordenId);
+        .eq('id', ordenId) as { error: any };
+      if (error) throw new Error(`No se pudo cerrar la orden ${ordenId}: ${error.message}`);
     };
 
     if (itemIds.length > 0) {
@@ -91,6 +217,15 @@ export async function POST(request: NextRequest) {
       }
       if (paidItems.length !== itemIds.length) {
         console.warn(`close-table: se solicitaron ${itemIds.length} items pero solo existen ${paidItems.length} en DB`);
+      }
+
+      // item_ids viene del cliente. Sin este filtro, mandar ids de otra mesa
+      // borraria esos items SIN generar pago ni comprobante.
+      const fueraDeAlcance = (paidItems || []).filter(
+        (it: any) => !ordenesACerrar.includes(String(it.orden_id))
+      );
+      if (fueraDeAlcance.length > 0) {
+        return jsonError('Items seleccionados no pertenecen a la mesa u orden indicada', 400);
       }
 
       const { data: allItems } = await supabase
@@ -112,7 +247,7 @@ export async function POST(request: NextRequest) {
       }
 
       const montoTotalPagado = (paidItems || []).reduce((s: number, i: any) => s + Number(i.subtotal || 0), 0);
-      const recibidoRestante = montoRecibido > montoTotalPagado ? montoRecibido : 0;
+      const cambioGlobal = montoRecibido > montoTotalPagado ? montoRecibido - montoTotalPagado : 0;
       const ordenesConPago = ordenesACerrar.filter(oid => (itemsByOrden[oid]?.length || 0) > 0);
       const ordenesQuedanCerradas: string[] = [];
 
@@ -120,31 +255,41 @@ export async function POST(request: NextRequest) {
         const items = itemsByOrden[ordenId];
         const montoOrden = items.reduce((s, i) => s + i.subtotal, 0);
         const isUltimaConPago = ordenId === ordenesConPago[ordenesConPago.length - 1];
-        const recibidoOrden = isUltimaConPago ? recibidoRestante : 0;
-        const vueltoOrden = recibidoOrden > montoOrden ? recibidoOrden - montoOrden : 0;
+        const recibidoOrden = isUltimaConPago && montoRecibido > 0 ? montoRecibido : null;
+        const vueltoOrden = isUltimaConPago ? cambioGlobal : 0;
 
         const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
           .insert({
             orden_id: ordenId,
             forma_pago: formaPago,
             monto: montoOrden,
-            monto_recibido: recibidoOrden > 0 ? recibidoOrden : null,
+            monto_recibido: (recibidoOrden ?? 0) > 0 ? recibidoOrden : null,
             vuelto: vueltoOrden,
           })
           .select()
           .single() as { data: any; error: any };
         if (pagoErr) throw pagoErr;
+        pagosInsertados.push(pagoRow.id);
 
         const snapshot = await fetchItemsSnapshot(supabase, ordenId, items.map((i) => i.id));
-        const nextNum = await getNextNum();
-        await (supabase.from('comprobantes') as any).insert({
-          numero: nextNum,
-          orden_id: ordenId,
-          pago_id: pagoRow.id,
-          total: montoOrden,
-          subtotal: montoOrden,
-          items_snapshot: snapshot,
-        });
+        const comp = await getNextComprobante();
+        const { data: compRow, error: compErr } = await (supabase.from('comprobantes') as any)
+          .insert({
+            numero: comp.numero,
+            fecha: comp.fecha,
+            orden_id: ordenId,
+            pago_id: pagoRow.id,
+            total: montoOrden,
+            subtotal: montoOrden,
+            items_snapshot: snapshot,
+          })
+          .select('id')
+          .single() as { data: any; error: any };
+        if (compErr) {
+          await rollback(supabase, pagosInsertados, comprobantesInsertados);
+          return jsonError(`Error guardando el comprobante: ${compErr.message}`, 500);
+        }
+        comprobantesInsertados.push(compRow.id);
 
         const pagadosOrden = items.length;
         const totalesOrden = allItemsCountByOrden[ordenId] || 0;
@@ -153,7 +298,13 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      await (supabase.from('orden_items') as any).delete().in('id', itemIds);
+      const { error: errDelete } = await (supabase.from('orden_items') as any)
+        .delete()
+        .in('id', itemIds);
+      if (errDelete) {
+        await rollback(supabase, pagosInsertados, comprobantesInsertados);
+        return jsonError(`Error limpiando los items cobrados: ${errDelete.message}`, 500);
+      }
 
       for (const ordenId of ordenesQuedanCerradas) {
         await closeOrden(ordenId);
@@ -163,81 +314,59 @@ export async function POST(request: NextRequest) {
       if (stillOpen.length > 0) {
         return jsonOk({ success: true, split: true });
       }
-    } else if (pagosArray.length > 0) {
-      // Cada pago del array se asocia a la orden pagada (si viene con orden_nu)
-      // o se reparte secuencialmente sobre ordenesACerrar. Si la cantidad de
-      // pagos no coincide con ordenes, caemos al primer orden (modo legacy).
-      const pagosConOrden = pagosArray.map((p: any, i: number) => ({
-        ...p,
-        orden_id: p.orden_nu || ordenesACerrar[Math.min(i, ordenesACerrar.length - 1)],
-      }));
-
-      for (const pago of pagosConOrden) {
-        const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
-          .insert({
-            orden_id: pago.orden_id,
-            forma_pago: pago.forma_pago?.toLowerCase() || 'efectivo',
-            monto: Number(pago.monto),
-            monto_recibido: pago.monto_recibido ? Number(pago.monto_recibido) : null,
-            vuelto: pago.vuelto ? Number(pago.vuelto) : 0,
-          })
-          .select()
-          .single() as { data: any; error: any };
-        if (pagoErr) throw pagoErr;
-
-        const nextNum = await getNextNum();
-        await (supabase.from('comprobantes') as any).insert({
-          numero: nextNum,
-          orden_id: pago.orden_id,
-          pago_id: pagoRow.id,
-          total: Number(pago.monto),
-          subtotal: Number(pago.monto),
-          items_snapshot: await fetchItemsSnapshot(supabase, pago.orden_id),
-        });
-      }
-
-      for (const ordenId of ordenesACerrar) {
-        await closeOrden(ordenId);
-      }
     } else {
-      const { data: ordenesData } = await supabase
-        .from('ordenes')
-        .select('id, total')
-        .in('id', ordenesACerrar) as { data: any[]; error: any };
+      // El monto sale de los ITEMS, no de ordenes.total. El guard de arriba ya
+      // garantiza que coinciden, pero cobrar la suma real deja el cobro atado a
+      // la verdad de terreno y no a un campo que mantiene la DB por su cuenta.
+      const lista = ordenesACerrar.map((id) => ({ id, total: montosReales[id] ?? 0 }));
 
-      const totalMesa = (ordenesData || []).reduce((s: number, o: any) => s + Number(o.total || 0), 0);
-      const recibidoRestante = montoRecibido > totalMesa ? montoRecibido : 0;
-      const lista = ordenesData || [];
+      const totalMesa = lista.reduce((s: number, o: any) => s + Number(o.total || 0), 0);
+      const cambioGlobal = montoRecibido > totalMesa ? montoRecibido - totalMesa : 0;
 
-      for (let idx = 0; idx < lista.length; idx++) {
-        const orden = lista[idx];
+      const ordenesConTotal = lista.filter((o: any) => Number(o.total || 0) > 0);
+      const ordenesVacias = lista.filter((o: any) => Number(o.total || 0) <= 0);
+      for (const orden of ordenesVacias) {
+        await closeOrden(String(orden.id));
+      }
+      for (let idx = 0; idx < ordenesConTotal.length; idx++) {
+        const orden = ordenesConTotal[idx];
         const ordenId = String(orden.id);
         const monto = Number(orden.total || 0);
-        const isUltima = idx === lista.length - 1;
-        const recibidoOrden = isUltima ? recibidoRestante : 0;
-        const vueltoOrden = recibidoOrden > monto ? recibidoOrden - monto : 0;
+        const isUltima = idx === ordenesConTotal.length - 1;
+        const recibidoOrden = isUltima && montoRecibido > 0 ? montoRecibido : null;
+        const vueltoOrden = isUltima ? cambioGlobal : 0;
 
         const { data: pagoRow, error: pagoErr } = await (supabase.from('pagos') as any)
           .insert({
             orden_id: ordenId,
             forma_pago: formaPago,
             monto,
-            monto_recibido: recibidoOrden > 0 ? recibidoOrden : null,
+            monto_recibido: (recibidoOrden ?? 0) > 0 ? recibidoOrden : null,
             vuelto: vueltoOrden,
           })
           .select()
           .single() as { data: any; error: any };
         if (pagoErr) throw pagoErr;
+        pagosInsertados.push(pagoRow.id);
 
-        const nextNum = await getNextNum();
-        await (supabase.from('comprobantes') as any).insert({
-          numero: nextNum,
-          orden_id: ordenId,
-          pago_id: pagoRow.id,
-          total: monto,
-          subtotal: monto,
-          items_snapshot: await fetchItemsSnapshot(supabase, ordenId),
-        });
+        const comp = await getNextComprobante();
+        const { data: compRow, error: compErr } = await (supabase.from('comprobantes') as any)
+          .insert({
+            numero: comp.numero,
+            fecha: comp.fecha,
+            orden_id: ordenId,
+            pago_id: pagoRow.id,
+            total: monto,
+            subtotal: monto,
+            items_snapshot: await fetchItemsSnapshot(supabase, ordenId),
+          })
+          .select('id')
+          .single() as { data: any; error: any };
+        if (compErr) {
+          await rollback(supabase, pagosInsertados, comprobantesInsertados);
+          return jsonError(`Error guardando el comprobante: ${compErr.message}`, 500);
+        }
+        comprobantesInsertados.push(compRow.id);
 
         await closeOrden(ordenId);
       }
@@ -267,6 +396,12 @@ export async function POST(request: NextRequest) {
     return jsonOk({ success: true });
   } catch (err) {
     console.error('Error POST /api/admin/close-table:', err);
+    // No dejar pagos/comprobantes huerfanos si algo lanzo una excepcion.
+    try {
+      await rollback(getServerSupabase(), pagosInsertados, comprobantesInsertados);
+    } catch (rollbackErr) {
+      console.error('Rollback fallido en close-table:', rollbackErr);
+    }
     return jsonError('Error al cerrar mesa', 500);
   }
 }

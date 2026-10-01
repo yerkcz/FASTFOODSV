@@ -6,7 +6,7 @@ import Image from "next/image";
 
 type Theme = "light" | "dark";
 
-const STORAGE_THEME = "ffsv_theme";
+const STORAGE_THEME = "eas_theme";
 
 function applyTheme(theme: Theme) {
   if (typeof document === "undefined") return;
@@ -129,9 +129,9 @@ export default function InicioPortal() {
         borderBottom: "1px solid rgba(255, 255, 255, 0.04)"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-          <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={36} height={36} style={{ borderRadius: "50%" }} priority />
+          <Image src="/logo.svg" alt="easystem" width={36} height={36} style={{ borderRadius: "50%" }} priority />
           <div style={{ fontSize: "1.05rem", fontWeight: 700, letterSpacing: "0.2px" }}>
-            Fast Food San Vicente
+            easystem
           </div>
         </div>
         <button

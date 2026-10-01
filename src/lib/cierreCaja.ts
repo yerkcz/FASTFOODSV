@@ -104,11 +104,12 @@ export async function ejecutarCierre(
 
   const totales = await fetchCierreDia(supabase, args.fecha);
 
-  const diferencia =
-    args.efectivo_contado != null
-      ? Number(args.efectivo_contado) - Number(totales.total_efectivo)
-      : null;
-
+  // NO insertar `diferencia`: es una columna GENERATED ALWAYS AS
+  //   COALESCE(efectivo_contado,0) - COALESCE(total_efectivo,0) STORED
+  // (migracion 0006). Postgres la calcula sola; intentar insertarla rompe el
+  // POST con 428C9 "cannot insert a non-DEFAULT value into column diferencia"
+  // — o sea, el cierre de caja NUNCA funciono. El .select() la devuelve ya
+  // calculada.
   const { data, error } = await supabase
     .from("cierres_caja")
     .insert({
@@ -121,7 +122,6 @@ export async function ejecutarCierre(
       total_sinpe: totales.total_sinpe,
       total_descuentos: totales.total_descuentos,
       efectivo_contado: args.efectivo_contado ?? null,
-      diferencia,
       observaciones: args.observaciones || null,
     })
     .select()

@@ -78,9 +78,9 @@ export default function POSPage() {
       if (nombreParam || llevarParam) {
         const name = nombreParam || llevarParam || "";
         setCliente(name);
-        localStorage.setItem(`ffsv_name`, name);
+        localStorage.setItem(`eas_name`, name);
       } else {
-        const savedName = localStorage.getItem(`ffsv_name`);
+        const savedName = localStorage.getItem(`eas_name`);
         if (savedName) setCliente(savedName);
       }
     }
@@ -209,8 +209,8 @@ export default function POSPage() {
 
       setIsCheckingTable(true);
       try {
-        const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
-        const savedGuestToken = localStorage.getItem(`ffsv_guest_token_${mesaName}`);
+        const savedToken = localStorage.getItem(`eas_token_${mesaName}`);
+        const savedGuestToken = localStorage.getItem(`eas_guest_token_${mesaName}`);
         
         const params = new URLSearchParams({ mesa: mesaName });
         if (savedToken) params.append('session_token', savedToken);
@@ -233,18 +233,18 @@ export default function POSPage() {
 
           // Clean up tokens if table is no longer occupied
           if (!data.isOccupied) {
-            localStorage.removeItem(`ffsv_token_${mesaName}`);
-            localStorage.removeItem(`ffsv_guest_token_${mesaName}`);
+            localStorage.removeItem(`eas_token_${mesaName}`);
+            localStorage.removeItem(`eas_guest_token_${mesaName}`);
           }
           
           // Frictionless Auto-Join: Save auto-generated guest token if provided
           if (data.guest_token) {
-            localStorage.setItem(`ffsv_guest_token_${mesaName}`, data.guest_token);
+            localStorage.setItem(`eas_guest_token_${mesaName}`, data.guest_token);
           }
 
           // If guest token is no longer valid, remove it
           if (data.isOccupied && !data.isGuest && savedGuestToken && !data.guest_token) {
-            localStorage.removeItem(`ffsv_guest_token_${mesaName}`);
+            localStorage.removeItem(`eas_guest_token_${mesaName}`);
           }
         }
       } catch (err) {
@@ -420,7 +420,7 @@ export default function POSPage() {
   const handleOwnerUnlock = async () => {
     setIsUnlocking(true);
     try {
-      const savedToken = localStorage.getItem(`ffsv_token_${mesaName}`);
+      const savedToken = localStorage.getItem(`eas_token_${mesaName}`);
       const res = await fetch("/api/client/unlock-table", {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
@@ -489,7 +489,7 @@ export default function POSPage() {
 
       // Save the session_token if this is a new order
       if (data.session_token) {
-        localStorage.setItem(`ffsv_token_${mesaName}`, data.session_token);
+        localStorage.setItem(`eas_token_${mesaName}`, data.session_token);
         setIsOwner(true);
         setExistingOrdenNu(ordenNu);
       }
@@ -565,9 +565,9 @@ export default function POSPage() {
           {/* ===== HEADER ===== */}
           <div className="header" style={{ flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={40} height={40} className="header-logo" priority />
+              <Image src="/logo.svg" alt="easystem" width={40} height={40} className="header-logo" priority />
               <div>
-                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>Fast Food San Vicente</h1>
+                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>easystem</h1>
                 <p style={{ fontSize: "0.68rem", color: "rgba(238,247,240,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
                   Menú Digital
                 </p>
@@ -613,8 +613,8 @@ export default function POSPage() {
           <div className="header">
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
               <Image
-                src="/LogoFastF.jpeg"
-                alt="Fast Food San Vicente"
+                src="/logo.svg"
+                alt="easystem"
                 width={40}
                 height={40}
                 className="header-logo"
@@ -629,7 +629,7 @@ export default function POSPage() {
                     color: "#eef7f0",
                   }}
                 >
-                  Fast Food San Vicente
+                  easystem
                 </h1>
                 <p
                   style={{

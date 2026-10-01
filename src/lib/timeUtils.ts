@@ -1,5 +1,5 @@
 /**
- * Fast Food San Vicente POS — Shared Time Utilities
+ * easystem — Shared Time Utilities
  * 
  * Single source of truth for all timestamp parsing and formatting.
  * PostgreSQL may return:
@@ -93,10 +93,17 @@ export function getUrgencyBadge(hora: string | null | undefined): string | null 
 }
 
 /**
- * Elapsed label: "5m", "1h 20m"
+ * Elapsed label: "5m", "1h 20m", "2d 5h"
+ *
+ * El caso de dias existe porque una orden forgotten un fin de semana queda
+ * abierta miles de minutos: "3074 min" no lo lee ni el mas paciente. El
+ * top de 1440 min es de 24h.
  */
 export function getElapsedLabel(hora: string | null | undefined): string {
   const mins = getElapsedMins(hora);
   if (mins < 60) return `${mins}m`;
-  return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ${mins % 60}m`;
+  const dias = Math.floor(mins / 1440);
+  const horas = Math.floor((mins % 1440) / 60);
+  return horas ? `${dias}d ${horas}h` : `${dias}d`;
 }

@@ -1,13 +1,15 @@
 {
-  "name": "fast-food-san-vicente-pos",
+  "name": "easystem",
   "version": "1.0.0",
   "private": true,
-  "description": "Sistema POS para Fast Food San Vicente (Costa Rica). 6 mesas fijas + Para Llevar. Régimen Simplificado.",
+  "description": "Sistema POS y KDS (Costa Rica). 6 mesas fijas + Para Llevar. Régimen Simplificado.",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "verify": "node scripts/verify_integridad.mjs",
+    "cleanup": "node scripts/cleanup_test_data.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",

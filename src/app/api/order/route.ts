@@ -19,9 +19,11 @@ export async function POST(request: NextRequest) {
     const mesaNumero = parseInt(String(mesa).replace(/\D/g, '')) || 99;
     const isLlevar = tipo === 'llevar' || String(mesa).toLowerCase().includes('llevar');
     const mesaFinal = isLlevar ? 99 : mesaNumero;
+    // AGENTS.md: toda API sanitiza sus inputs. Este import existia pero NUNCA
+    // se uso — `cliente_nombre` y `notas` iban crudos a la DB.
     const combinedName = isLlevar
-      ? (cliente || 'Para Llevar')
-      : (cliente ? `${mesa} - ${cliente}` : mesa);
+      ? (cliente ? sanitize(cliente, 120) : 'Para Llevar')
+      : (cliente ? `${sanitize(mesa, 20)} - ${sanitize(cliente, 100)}` : sanitize(mesa, 20));
 
     const { data: mesaRow } = await supabase
       .from('mesas')
@@ -63,7 +65,7 @@ export async function POST(request: NextRequest) {
         precio_unitario: precio,
         cantidad: cant,
         subtotal: precio * cant,
-        notas: it.notas || null,
+        notas: it.notas ? sanitize(String(it.notas), 300) : null,
       });
     }
 

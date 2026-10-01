@@ -64,6 +64,15 @@ export async function POST(request: NextRequest) {
 
     if (error) throw error;
 
+    const { count: remaining } = await supabase
+      .from('orden_items')
+      .select('id', { count: 'exact', head: true })
+      .eq('orden_id', item.orden_id) as { count: number | null; error: any };
+
+    if (remaining === 0) {
+      await (supabase.from('ordenes') as any).update({ estado: 'cerrada', closed_at: new Date().toISOString() }).eq('id', item.orden_id);
+    }
+
     return jsonOk({
       success: true,
       cross_mesa: isCrossMesa,

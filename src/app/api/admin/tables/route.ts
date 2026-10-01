@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
 
     const groupsMap = new Map<number, any>();
     for (const o of (data as any[]) || []) {
+      const totalOrder = Number(o.total || 0);
+      if (totalOrder <= 0) continue;
       const key = o.mesa_numero;
       if (!groupsMap.has(key)) {
         groupsMap.set(key, {
@@ -32,10 +34,10 @@ export async function GET(request: NextRequest) {
         cliente: o.cliente_nombre,
         fecha: o.opened_at,
         estado: o.estado,
-        total: Number(o.total || 0),
+        total: totalOrder,
         tipo: o.tipo,
       });
-      g.total_mesa += Number(o.total || 0);
+      g.total_mesa += totalOrder;
     }
 
     return NextResponse.json({

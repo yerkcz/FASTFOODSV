@@ -37,26 +37,8 @@ export async function GET(request: NextRequest) {
     }));
 
     if (mapped.length === 0) {
-      const { data: comps } = await supabase
-        .from('comprobantes')
-        .select('id, orden_id, items_snapshot, created_at, numero')
-        .in('orden_id', ordenesList)
-        .order('created_at', { ascending: true }) as { data: any[]; error: any };
-      mapped = (comps || []).flatMap((c: any) => {
-        const snap = Array.isArray(c.items_snapshot) ? c.items_snapshot : [];
-        return snap.map((it: any, idx: number) => ({
-          ID: `${c.id}-${idx}`,
-          ARTICULO: it.nombre,
-          CANTIDAD: it.cantidad,
-          PRECIO: Number(it.precio_unitario),
-          TOTAL: Number(it.subtotal),
-          NOTAS: it.notas || null,
-          LISTO: true,
-          HoraRegistro: c.created_at,
-          FechaRegistro: c.created_at,
-          Orden_Nu: c.orden_id,
-        }));
-      });
+      // ponytail: no items → no phantom fallback. paid items from comprobantes
+      // are not selectable for payment; user sees history in closed-orders tab.
     }
 
     return jsonOk({ items: mapped });

@@ -17,12 +17,19 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "Fast Food San Vicente — POS",
-  description: "Sistema POS de Fast Food San Vicente, Costa Rica",
+  title: "easystem — POS",
+  description: "Sistema POS y KDS — easystem",
+  // Iconos declarados a mano: antes solo habia favicon.ico y NO habia
+  // apple-touch-icon, asi que iOS tomaba un screenshot de la pagina como
+  // icono de la pantalla de inicio.
+  icons: {
+    icon: "/logo.svg",
+    apple: "/apple-icon.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Fast Food San Vicente",
+    title: "easystem",
   },
 };
 
@@ -40,7 +47,7 @@ export default function RootLayout({
             __html: `
               (function() {
                 try {
-                  var t = localStorage.getItem('ffsv_theme');
+                  var t = localStorage.getItem('eas_theme');
                   document.documentElement.setAttribute('data-theme', t === 'light' ? 'light' : 'dark');
                 } catch(e) {
                   document.documentElement.setAttribute('data-theme', 'dark');
@@ -49,6 +56,10 @@ export default function RootLayout({
             `
           }}
         />
+        {/* PWA: "Add to Home Screen" con icono propio. Sin esto, appleWebApp
+            de abajo no genera el icono y el POS abre en el navegador. */}
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#047857" />
         {/* Roboto for all POS/Staff pages — loaded once globally */}
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />

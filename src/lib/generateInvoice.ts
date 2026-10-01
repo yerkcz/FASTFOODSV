@@ -93,19 +93,24 @@ function formatItemLine(cant: number, nombre: string, total: number): { cant: st
   return { cant: cantStr, name: truncated.padEnd(maxName, " "), total: totalStr };
 }
 
+export type InvoiceModo = "descargar" | "imprimir";
+
 export async function generateInvoice(
   items: CartItem[],
   total: number,
   meta: OrderMeta = { mesa: "Mesa 1", cliente: "" },
   ordenNu?: string,
-  pago?: InvoicePago
+  pago?: InvoicePago,
+  // "descargar" = JPEG a la galeria (default, comportamiento previo intacto).
+  // "imprimir"  = manda el mismo canvas a la impresora (termica de 80mm).
+  modo: InvoiceModo = "descargar"
 ): Promise<void> {
-  void pago;
-  const ctx = document.createElement("canvas").getContext("2d");
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("Canvas 2D no disponible");
 
   const now = crNow();
-  const logo = await loadImage("/LogoFastF.jpeg");
+  const logo = await loadImage("/logo.svg");
 
   const fontHeader = "11px monospace";
   const fontBody = "11px monospace";
@@ -114,13 +119,12 @@ export async function generateInvoice(
 
   let y = MARGIN + 4;
 
-  const headerLines = [
-    "FAST FOOD SAN VICENTE",
-    "Sharlin Maclean Vargas",
-    "Ident Física: 207960326",
-    "Tel: 6081-1275",
-    "25mts sureste de la Iglesia Católica de San Vicente",
-    "fastfoodsanvicente@gmail.com",
+  // Unica fuente de verdad del encabezado: esta MISMA lista reserva el alto del
+  // canvas (headerReserved, abajo) y se dibuja en el bloque de dibujo. Antes
+  // estaba escrita dos veces y cambiar una sola desbordaba el ticket.
+  const headerLines: Array<{ text: string; font: string; color: string }> = [
+    { text: "easystem", font: fontBrand, color: "#000" },
+    { text: "Sistema de Punto de Venta", font: "10px monospace", color: "#444" },
   ];
   const headerReserved = (logo ? 70 : 0) + headerLines.length * LINE_HEIGHT + 8;
   const metaLines = 3;
@@ -131,14 +135,14 @@ export async function generateInvoice(
     const note = it.notas ? LINE_HEIGHT : 0;
     return sum + base + note;
   }, 0) + 8;
+  const pagoReserved = pago ? LINE_HEIGHT * 3 + 8 : 0;
   const totalsReserved = LINE_HEIGHT * 4 + 8;
   const footerLines = 2;
   const footerReserved = footerLines * LINE_HEIGHT + 8;
 
   const height =
-    headerReserved + metaReserved + tableHeader + itemReserved + totalsReserved + footerReserved;
+    headerReserved + metaReserved + tableHeader + itemReserved + pagoReserved + totalsReserved + footerReserved;
 
-  const canvas = ctx.canvas;
   canvas.width = WIDTH_PX;
   canvas.height = height;
 
@@ -163,18 +167,10 @@ export async function generateInvoice(
     y += logoSize + 4;
   }
 
-  drawCenteredText(ctx, "FAST FOOD SAN VICENTE", y, fontBrand);
-  y += LINE_HEIGHT;
-  drawCenteredText(ctx, "Sharlin Maclean Vargas", y, "10px monospace", "#000");
-  y += LINE_HEIGHT;
-  drawCenteredText(ctx, "Ident Física: 207960326", y, "10px monospace", "#444");
-  y += LINE_HEIGHT;
-  drawCenteredText(ctx, "Tel: 6081-1275", y, "10px monospace", "#444");
-  y += LINE_HEIGHT;
-  drawCenteredText(ctx, "25mts sureste de la Iglesia Católica de San Vicente", y, "10px monospace", "#444");
-  y += LINE_HEIGHT;
-  drawCenteredText(ctx, "fastfoodsanvicente@gmail.com", y, "10px monospace", "#444");
-  y += LINE_HEIGHT;
+  for (const line of headerLines) {
+    drawCenteredText(ctx, line.text, y, line.font, line.color);
+    y += LINE_HEIGHT;
+  }
   drawSolid(ctx, y + 4);
   y += LINE_HEIGHT;
 
@@ -238,8 +234,20 @@ export async function generateInvoice(
   ctx.fillStyle = "#000";
   y += LINE_HEIGHT + 6;
 
-  drawDashed(ctx, y);
-  y += LINE_HEIGHT;
+  if (pago) {
+    ctx.font = "bold 11px monospace";
+    const metodo = pago.forma_pago.charAt(0).toUpperCase() + pago.forma_pago.slice(1);
+    drawLeftRight(ctx, `FORMA DE PAGO: ${metodo}`, `Recibido: ${formatColones(pago.recibido)}`, y, true);
+    y += LINE_HEIGHT;
+    if (pago.vuelto > 0) {
+      drawLeftRight(ctx, "", `Vuelto: ${formatColones(pago.vuelto)}`, y);
+      y += LINE_HEIGHT;
+    }
+    drawLeftRight(ctx, "", `Estado: PAGADO`, y);
+    y += LINE_HEIGHT;
+    drawDashed(ctx, y);
+    y += LINE_HEIGHT;
+  }
 
   ctx.font = fontBody;
   ctx.textAlign = "center";
@@ -248,6 +256,11 @@ export async function generateInvoice(
   ctx.font = "9px monospace";
   ctx.fillStyle = "#555";
   ctx.fillText("Comprobante interno - Regimen Simplificado", WIDTH_PX / 2, y);
+
+  if (modo === "imprimir") {
+    imprimirComprobante(canvas);
+    return;
+  }
 
   const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
   const a = document.createElement("a");
@@ -258,4 +271,33 @@ export async function generateInvoice(
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
+}
+
+/**
+ * Manda el comprobante a la impresora termica.
+ *
+ * Se reimprime la misma imagen que se descarga (un solo codigo de dibujo, no
+ * dos que puedan divergir). El canvas mide 302px ~= 80mm a 96dpi, y la hoja se
+ * dimensiona a 80mm sin margenes para que la impresora no intente encogerlo.
+ */
+function imprimirComprobante(canvas: HTMLCanvasElement): void {
+  const w = window.open("", "_blank", "width=340,height=700");
+  if (!w) {
+    // Popup bloqueado: el boton 🖨️ fue un click, esto casi nunca pasa.
+    alert("No se pudo abrir la ventana de impresión. Permite los pop-ups para este sitio.");
+    return;
+  }
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  w.document.write(
+    `<!doctype html><html><head><meta charset="utf-8">` +
+      `<title>Comprobante</title><style>` +
+      `@page { size: 80mm auto; margin: 0; }` +
+      `html,body { margin:0; padding:0; background:#fff; }` +
+      `img { display:block; width:80mm; height:auto; }` +
+      `@media screen { body { padding: 6px; } }` +
+      `</style></head><body>` +
+      `<img src="${dataUrl}" onload="setTimeout(function(){window.print()},120)">` +
+      `</body></html>`
+  );
+  w.document.close();
 }

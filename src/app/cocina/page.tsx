@@ -5,6 +5,7 @@ import { useEffect, useState, useRef, useCallback } from "react";
 import Image from "next/image";
 import { formatTime, getTimeColor, getElapsedMins, getUrgencyBadge } from "@/lib/timeUtils";
 import { isColdDrink, isHotDrink, isKitchenFood } from "@/lib/kdsFilters";
+import { beep, unlock } from "@/lib/kdsSound";
 
 type OrderItem = {
   id: string;
@@ -31,6 +32,9 @@ export default function KitchenDisplaySystem() {
   const [soundEnabled, setSoundEnabled] = useState(false);
   const [activeTab, setActiveTab] = useState<"Proceso de comandas" | "Bebidas Frías" | "Bebidas Calientes">("Proceso de comandas");
   const [customOrder, setCustomOrder] = useState<string[]>([]);
+  // El primer poll no debe sonar: al abrir la pantalla ya hay comandas
+  // pendientes y eso no es "comanda nueva".
+  const primed = useRef(false);
 
   const fetchOrders = useCallback(async () => {
     try {
@@ -39,6 +43,13 @@ export default function KitchenDisplaySystem() {
         const data = await res.json();
         const newTotalPendingItems = data.orders.reduce((acc: number, o: Order) =>
           acc + o.items.filter(i => !i.listo).length, 0);
+        // Suena SOLO cuando la cola CRECE. El polling corre cada 5s: sin esto
+        // el cocinero tiene que estar mirando la pantalla para saber que
+        // llego algo.
+        if (primed.current && newTotalPendingItems > lastOrdersCount) {
+          beep();
+        }
+        primed.current = true;
         setLastOrdersCount(newTotalPendingItems);
         setOrders(data.orders);
       }
@@ -130,7 +141,7 @@ export default function KitchenDisplaySystem() {
                 <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
               </svg>
             </Link>
-            <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente KDS" width={26} height={26} className="kds-logo" priority />
+            <Image src="/logo.svg" alt="easystem" width={26} height={26} className="kds-logo" priority />
             <span className="kds-brand">KDS · Cocina</span>
           </div>
         </header>
@@ -138,8 +149,8 @@ export default function KitchenDisplaySystem() {
           <div className="kds-splash-card">
             <div className="kds-splash-icon">👨‍🍳</div>
             <h2 className="kds-splash-title">Monitor de Cocina</h2>
-            <p className="kds-splash-sub">Toca para iniciar el tablero en tiempo real.</p>
-            <button className="kds-splash-btn" onClick={() => setSoundEnabled(true)}>
+            <p className="kds-splash-sub">Toca para iniciar el tablero. Sonará cada vez que llegue una comanda nueva.</p>
+            <button className="kds-splash-btn" onClick={() => { unlock(); setSoundEnabled(true); }}>
               🚀 Iniciar Tablero
             </button>
           </div>
@@ -158,7 +169,7 @@ export default function KitchenDisplaySystem() {
               <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>
           </Link>
-          <Image src="/LogoFastF.jpeg" alt="Fast Food San Vicente" width={24} height={24} className="kds-logo" priority />
+          <Image src="/logo.svg" alt="easystem" width={24} height={24} className="kds-logo" priority />
           <span className="kds-brand">KDS · Cocina</span>
         </div>
         <div className="kds-header-right">

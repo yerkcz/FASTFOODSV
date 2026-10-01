@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100">
+  <!-- easystem — monograma "e" geometrico. Sin <text> ni fuentes: se dibuja
+       igual en el navegador, en el favicon y en el canvas de la impresora.
+       width/height explicitos son obligatorios: el comprobante lo pinta con
+       drawImage() y un SVG sin tamano declarado sale en 0x0 (ticket sin logo). -->
+  <rect width="100" height="100" fill="#047857"/>
+  <!-- anillo del cuerpo -->
+  <circle cx="50" cy="50" r="26" fill="none" stroke="#ffffff" stroke-width="12"/>
+  <!-- travesano horizontal -->
+  <rect x="18" y="44" width="64" height="12" fill="#ffffff"/>
+  <!-- Sector anular de 25deg a 68deg: abre la boca de la "e".
+       Radio interior 17 (no desde el centro): al arrancar en el centro el
+       rasterizador deja una mancha verde sobre el travesano. Con 17 su borde
+       superior queda en y=57.2, bajo el travesano (y=56), y aun asi cubre
+       todo el anillo, que vive entre r=20 y r=32. -->
+  <path d="M65.41 57.18 A17 17 0 0 1 56.37 65.76 L64.24 85.23 A38 38 0 0 0 84.44 66.06 Z" fill="#047857"/>
+</svg>

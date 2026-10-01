@@ -1,4 +1,4 @@
-// Global TypeScript Definitions for Fast Food San Vicente POS
+// Global TypeScript Definitions for easystem
 
 export type Product = {
   id: string;
