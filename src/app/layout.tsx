@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Outfit } from "next/font/google";
+import Navigation from "@/components/Navigation";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -71,6 +72,7 @@ export default function RootLayout({
         <div style={{ paddingTop: '0px' }}>
           {children}
         </div>
+        <Navigation />
       </body>
     </html>
   );

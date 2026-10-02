@@ -98,15 +98,12 @@ export type InvoiceModo = "descargar" | "imprimir";
 export async function generateInvoice(
   items: CartItem[],
   total: number,
-  meta: OrderMeta = { encabezado: "PEDIDO" },
+  meta: OrderMeta = { mesa: "Mesa 1", cliente: "" },
   ordenNu?: string,
   pago?: InvoicePago,
   // "descargar" = JPEG a la galeria (default, comportamiento previo intacto).
   // "imprimir"  = manda el mismo canvas a la impresora (termica de 80mm).
-  modo: InvoiceModo = "descargar",
-  // Descuento ya aplicado. Si > 0 se imprime como renglon propio para que el
-  // bruto de los items y el TOTAL cobrado dejen de parecer un error de suma.
-  descuento = 0
+  modo: InvoiceModo = "descargar"
 ): Promise<void> {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
@@ -180,13 +177,12 @@ export async function generateInvoice(
   ctx.font = fontHeader;
   drawLeftRight(ctx, ordenNu ? `ORDEN #${ordenNu.slice(0, 8)}` : "", `Fecha: ${crDateStr(now)}`, y, true);
   y += LINE_HEIGHT;
-  drawLeftRight(ctx, `Hora: ${crTimeStr(now)}`, "", y);
+  drawLeftRight(ctx, `Hora: ${crTimeStr(now)}`, meta.mesa ? meta.mesa.toUpperCase() : "", y);
   y += LINE_HEIGHT;
-  // Antes iba el nombre de la mesa al lado de la hora (y abajo "Cliente:").
-  // Con ventas individuales la única línea que aporta es QUIÉN pidió, y vive
-  // en `metaPedido()` para que /admin y /inicio manden exactamente esto.
-  drawLeftRight(ctx, (meta.encabezado || "PEDIDO").slice(0, 34), "", y);
-  y += LINE_HEIGHT;
+  if (meta.cliente) {
+    drawLeftRight(ctx, `Cliente: ${meta.cliente.slice(0, 22)}`, "", y);
+    y += LINE_HEIGHT;
+  }
   drawDashed(ctx, y + 2);
   y += LINE_HEIGHT;
 
@@ -228,17 +224,8 @@ export async function generateInvoice(
   y += LINE_HEIGHT;
 
   ctx.font = "bold 11px monospace";
-  drawLeftRight(ctx, "SUBTOTAL", formatColones(total + descuento), y);
+  drawLeftRight(ctx, "SUBTOTAL", formatColones(total), y);
   y += LINE_HEIGHT;
-
-  // Solo se pinta si hay descuento: en el caso normal no se agrega una linea
-  // vacia que cambie el alto del ticket.
-  if (descuento > 0) {
-    ctx.fillStyle = "#b91c1c";
-    drawLeftRight(ctx, "DESCUENTO", `-${formatColones(descuento)}`, y);
-    ctx.fillStyle = "#000";
-    y += LINE_HEIGHT;
-  }
 
   ctx.font = fontTotal;
   ctx.textAlign = "right";

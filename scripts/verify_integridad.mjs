@@ -184,25 +184,12 @@ try {
   section('10. El comprobante reimprimible tiene los items (sin table-details)');
   const conItems = orders.filter((x) => (x.items_snapshot || []).length > 0);
   ok(conItems.length === orders.length, `todos los comprobantes tienen items_snapshot (${conItems.length}/${orders.length})`);
-  // El snapshot guarda los ítems SIN descontar, así que cuadra contra el
-  // `subtotal` (bruto) y no contra el `total` (neto). Antes se comparaba
-  // directo contra `total` y desde que existe el descuento eso era falso por
-  // diseño: 10% sobre ₡5.000 deja snapshot=5.000 y total=4.500 y el check
-  // gritaba "malos: 3" aunque todo estuviera bien. Se exigen las DOS
-  // igualdades, que es lo que el cliente ve en el papel.
   const mapeoMal = conItems.filter((x) => {
     const calc = x.items_snapshot.reduce((s, i) => s + Number(i.precio_unitario) * Number(i.cantidad), 0);
-    const bruto = Number(x.subtotal);
-    const desc = Number(x.descuento || 0);
-    if (Math.abs(calc - bruto) > 0.01) return true;              // ítems == bruto
-    return Math.abs(bruto - desc - Number(x.total)) > 0.01;       // bruto − dto == cobrado
+    return Math.abs(calc - x.total) > 0.01;
   });
-  ok(mapeoMal.length === 0,
-    `snapshot == subtotal bruto y total == subtotal − descuento (malos: ${mapeoMal.length})`);
-  // 'individual' = pedido suelto sin mesa (0011). 'mesa'/'llevar' siguen
-  // siendo los tipos que el POS actual emite para no romper lo que ya corre.
-  ok(orders.every((x) => ['mesa', 'llevar', 'individual'].includes(x.tipo)),
-    'todo comprobante trae `tipo` conocido para derivar el encabezado');
+  ok(mapeoMal.length === 0, `items_snapshot x precio x cantidad == comprobante.total (malos: ${mapeoMal.length})`);
+  ok(orders.every((x) => ['mesa', 'llevar'].includes(x.tipo)), 'todo comprobante trae `tipo` para derivar Rest./Llevar');
   const lleva = orders.filter((x) => x.tipo === 'llevar');
   console.log(`     pedidos para llevar hoy: ${lleva.length}`);
 
@@ -234,17 +221,12 @@ try {
   const { data: abiertas } = await db.from('ordenes').select('id').eq('estado', 'abierta');
   const { data: itemsAbiertas } = await db.from('orden_items').select('orden_id');
   const conItems2 = new Set(itemsAbiertas.map((i) => i.orden_id));
-  const fantasmas = abiertas.filter((o) => !conItems2.has(o.id));
-  ok(fantasmas.length === 0,
-    `ordenes abiertas sin items (fantasmas): ${fantasmas.length}` +
-    (fantasmas.length ? ` -> ${fantasmas.map((o) => o.id.slice(0, 8)).join(', ')}` : ''));
+  ok(abiertas.filter((o) => !conItems2.has(o.id)).length === 0, 'ordenes abiertas sin items (fantasmas): 0');
   const { data: mesas } = await db.from('mesas').select('numero, estado');
-  const { data: ordenesPorMesa } = await db.from('ordenes')
-    .select('mesa_numero, tipo').eq('estado', 'abierta');
-  // Solo las MESAS REALES. La 99 es virtual (Para Llevar / mostrador) y por
-  // diseno nunca se marca 'ocupada': `/api/order` solo actualiza `mesas`
-  // cuando `!isLlevar`. Sin este filtro, cada pedido llevar abierto hacia
-  // fallar este check, aunque la base estuviera perfectamente sana.
+  const { data: ordenesPorMesa } = await db.from('ordenes').select('mesa_numero, tipo').eq('estado', 'abierta');
+  // Solo las mesas REALES cuentan: la 99 (Para Llevar) es virtual y por diseno
+  // nunca se marca 'ocupada' aunque tenga ordenes abiertas — filtrar por tipo
+  // evita un falso positivo cuando hay pedidos para llevar sin cobrar.
   const conAbiertas = new Set(
     ordenesPorMesa.filter((o) => o.tipo === 'mesa').map((o) => o.mesa_numero)
   );
@@ -403,6 +385,28 @@ try {
     ok(/409/.test(ct) && /ya fue cobrada/.test(ct), 'close-table: 409 si ya estaba cobrada (red de fondo)');
   }
 
+  // ── 17. KDS: sonido de comanda nueva (Fase B6) ───────────────────────────
+  section('17. KDS: alerta sonora');
+  {
+    const snd = new URL('../src/lib/kdsSound.ts', import.meta.url);
+    ok(fs.existsSync(snd), 'lib/kdsSound.ts existe');
+    const src = fs.readFileSync(snd, 'utf8');
+    ok(/createOscillator/.test(src) && /createGain/.test(src), 'kdsSound: oscillator WebAudio (0 archivos)');
+    ok(/unlock\(\)/.test(src), 'kdsSound: unlock() para el gesto de usuario');
+    ok(/useUnlockOnFirstGesture/.test(src), 'kdsSound: hook para KDS sin splash');
+
+    for (const p of ['cocina', 'bebidas-frias', 'bebidas-calientes']) {
+      const k = fs.readFileSync(new URL(`../src/app/${p}/page.tsx`, import.meta.url), 'utf8');
+      ok(/from "@\/lib\/kdsSound"/.test(k), `${p}: importa kdsSound`);
+      ok(/beep\(\)/.test(k), `${p}: dispara beep() cuando la cola crece`);
+      // Un beep en cada poll seria insoportable: debe compararse con el previo.
+      ok(/>\s*last(?:Count|OrdersCount)\.current\s*</.test(k)
+         || /newTotalPendingItems > lastOrdersCount/.test(k)
+         || /filtered\.length > lastCount\.current/.test(k),
+        `${p}: beep solo si la cola CRECE (no en cada poll)`);
+    }
+  }
+
   // ── 18. PWA: manifest enlazado ────────────────────────────────────────────
   section('18. PWA (Add to Home Screen)');
   {
@@ -429,13 +433,8 @@ try {
   // dejo rastro explicito de por que se desincrono.
   section('19. Coherencia total <-> items');
   {
-    // Se revisan TODAS las órdenes, no solo las abiertas. Antes solo se
-    // miraba `estado='abierta'` y eso dejó pasar un bug real: al mover un
-    // item de orden (`reassign-item`) el trigger solo recalculaba el
-    // destino, y `reassign-item` cerraba el origen en cuanto quedaba vacío
-    // — congelando un saldo fantasma de ₡2.000 en 4 órdenes cerradas.
-    const { data: todas } = await db.from('ordenes')
-      .select('id, mesa_numero, total, estado, descuento');
+    const { data: abiertas } = await db.from('ordenes')
+      .select('id, mesa_numero, total, estado').eq('estado', 'abierta');
     const { data: items } = await db.from('orden_items')
       .select('id, orden_id, nombre_producto, cantidad, precio_unitario, subtotal, estado_kds');
 
@@ -444,18 +443,13 @@ try {
       .filter((i) => i.orden_id === oid && i.estado_kds !== 'cancelado' && i.estado_kds != null)
       .reduce((s, i) => s + Number(i.subtotal || 0), 0);
 
-    // Desde 0011 el trigger calcula `total = Σitems − descuento`. `descuento`
-    // se lee de la DB ya resuelto, asi que con descuento = 0 esto colapsa
-    // EXACTAMENTE al invariante original "total == suma(items)".
-    const esperadoDe = (o) => sumaDe(o.id) - Number(o.descuento || 0);
-
-    const desviadas = todas.filter((o) => Math.abs(esperadoDe(o) - Number(o.total)) > 0.01);
+    const desviadas = abiertas.filter((o) => Math.abs(sumaDe(o.id) - Number(o.total)) > 0.01);
     for (const o of desviadas) {
-      console.log(`     DESVIADA ${o.id.slice(0, 8)} ${o.estado} mesa ${o.mesa_numero}: ` +
-        `total=${o.total} items−desc=${esperadoDe(o)}`);
+      console.log(`     DESVIADA ${o.id.slice(0, 8)} mesa ${o.mesa_numero}: ` +
+        `total=${o.total} items=${sumaDe(o.id)}`);
     }
     ok(desviadas.length === 0,
-      `ordenes.total == suma(items) − descuento en TODA orden, abierta o cerrada (${todas.length} orden(es))`);
+      `ordenes.total == suma(items) en toda orden abierta (${abiertas.length} abierta(s))`);
 
     // subtotal de cada item debe ser precio * cantidad. Si esto se rompe, el
     // trigger suma cifras inventadas.
@@ -482,102 +476,6 @@ try {
     // El helper debe descartar los NULL igual que SQL, o daria 409 en falso.
     ok(/estado_kds != null/.test(ct),
       'close-table: sumaRealOrden excluye estado_kds NULL (como hace el trigger)');
-  }
-
-  // ── 20. Descuento, extra y pedido sin mesa (modelo nuevo) ────────────────
-  // Tres formas distintas de perder dinero en el flujo nuevo, todas en silencio:
-  //   a) el descuento no se aplica          -> se cobra de MAS
-  //   b) el extra no entra en el total      -> se cobra de MENOS
-  //   c) el pedido sin mesa cae en la 99    -> el bug de siempre
-  section('20. Descuento, extra y pedido individual');
-  {
-    const r = await api('/api/order', {
-      method: 'POST',
-      body: JSON.stringify({
-        cliente: 'Descuento',
-        tipo: 'individual',
-        items: [Q, Q],                                   // 2 × ₡2.000 = ₡4.000
-        descuento: { tipo: 'porcentaje', valor: 10 },
-        extras: [{ nombre: 'Delivery', monto: 1000 }],
-      }),
-    });
-    ok(r.status === 200, `individual + descuento + extra aceptado (${r.status})`);
-    const oid = r.body?.orden_nu;
-
-    const { data: ord } = await db.from('ordenes')
-      .select('tipo, mesa_numero, subtotal, descuento, total, estado_pago')
-      .eq('id', oid);
-    const o = ord?.[0] || {};
-    ok(o.tipo === 'individual', `tipo='individual' (vino: ${o.tipo})`);
-    ok(o.mesa_numero === null, `mesa_numero NULL, sin Mesa 99 (vino: ${o.mesa_numero})`);
-    ok(Math.abs(Number(o.subtotal) - 5000) < 0.01,
-      `subtotal = 4.000 items + 1.000 extra (${money(o.subtotal)})`);
-    ok(Math.abs(Number(o.descuento) - 500) < 0.01,
-      `10% resuelto a monto por la DB (${money(o.descuento)})`);
-    ok(Math.abs(Number(o.total) - 4500) < 0.01,
-      `total = 5.000 − 500 (${money(o.total)})`);
-    ok(o.estado_pago === 'pendiente', `estado_pago pendiente sin abonos (${o.estado_pago})`);
-
-    const { data: li } = await db.from('orden_items')
-      .select('tipo_linea, estado_kds, subtotal').eq('orden_id', oid);
-    const extra = (li || []).find((i) => i.tipo_linea === 'extra');
-    ok(!!extra && Math.abs(Number(extra?.subtotal) - 1000) < 0.01,
-      'el cargo extra entra como línea tipo_linea=extra');
-    ok(extra?.estado_kds === 'entregado',
-      `el extra no se manda a cocina (${extra?.estado_kds})`);
-
-    // Dividir esta orden con descuento tiene que quedar BLOQUEADO: el split
-    // cobra el bruto de cada trozo y el descuento pertenece a la orden
-    // entera. Mejor un 409 que un cobro de más.
-    const { data: idsItems } = await db.from('orden_items').select('id').eq('orden_id', oid);
-    const rs = await api('/api/admin/close-table', {
-      method: 'POST',
-      body: JSON.stringify({
-        orden_nu: oid,
-        item_ids: (idsItems || []).map((i) => i.id),
-        forma_pago: 'Efectivo',
-        recibido: 5000,
-      }),
-    });
-    ok(rs.status === 409,
-      `dividir una orden con descuento queda bloqueado (${rs.status})`);
-
-    // Cobrar: el guard debe restar el descuento, no cobrar el bruto.
-    const rc = await api('/api/admin/close-table', {
-      method: 'POST',
-      body: JSON.stringify({ orden_nu: oid, forma_pago: 'Efectivo', recibido: 5000 }),
-    });
-    ok(rc.status === 200, `se pudo cobrar el pedido con descuento (${rc.status})`);
-
-    const { data: comps } = await db.from('comprobantes')
-      .select('subtotal, descuento, total, items_snapshot').eq('orden_id', oid);
-    const comp = comps?.[0] || {};
-    ok(comps?.length === 1, 'generó exactamente un comprobante');
-    ok(Math.abs(Number(comp.total) - 4500) < 0.01,
-      `comprobante cobra 4.500, no 5.000 (${money(comp.total)})`);
-    ok(Math.abs(Number(comp.descuento) - 500) < 0.01,
-      `comprobante REGISTRA el descuento, si no cierreCaja da 0 (${money(comp.descuento)})`);
-    ok(Math.abs(Number(comp.subtotal) - 5000) < 0.01,
-      `comprobante.subtotal = bruto (${money(comp.subtotal)})`);
-    const snapSum = (comp.items_snapshot || [])
-      .reduce((s, i) => s + Number(i.subtotal || 0), 0);
-    ok(Math.abs(snapSum - Number(comp.subtotal)) < 0.01,
-      `snapshot (${money(snapSum)}) == subtotal (${money(comp.subtotal)}): el PDF no muestra cifras que no cuadran`);
-
-    const { data: pgs } = await db.from('pagos').select('monto').eq('orden_id', oid);
-    ok(Math.abs(Number(pgs?.[0]?.monto) - 4500) < 0.01,
-      `pago = 4.500 (${pgs?.[0] ? money(pgs[0].monto) : 'ninguno'})`);
-
-    const { data: fin } = await db.from('ordenes')
-      .select('estado, estado_pago').eq('id', oid);
-    ok(fin?.[0]?.estado === 'cerrada', `pedido cerrado tras el cobro (${fin?.[0]?.estado})`);
-    ok(fin?.[0]?.estado_pago === 'pagado',
-      `estado_pago pagado al cerrar (${fin?.[0]?.estado_pago})`);
-
-    // El pedido no tenía mesa: la 99 virtual no debe haberse molestado.
-    const { data: m99 } = await db.from('mesas').select('estado').eq('numero', 99);
-    ok(m99?.[0]?.estado === 'libre',
-      `la Mesa 99 virtual sigue libre, no se tocó (${m99?.[0]?.estado})`);
   }
 } catch (e) {
   fail++;

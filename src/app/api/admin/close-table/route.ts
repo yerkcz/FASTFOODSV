@@ -42,10 +42,6 @@ async function fetchItemsSnapshot(
  * Suma REAL de los items de una orden, replicando exactamente el filtro del
  * trigger `recalcular_total_orden`: `estado_kds != 'cancelado'`.
  *
- * Es el bruto SIN descuento. El guard de abajo le resta `ordenes.descuento`
- * para reconstruir `ordenes.total`; con `descuento = 0` (que era siempre)
- * ambas formas dan el mismo numero.
- *
  * Ojo con el NULL: en SQL `NULL != 'cancelado'` evalua NULL, y una fila que no
  * cumple la condicion NO se suma. Por eso aca tambien se descartan los null,
  * no solo los 'cancelado'. Si este helper no replica eso, el guard de abajo
@@ -111,7 +107,7 @@ export async function POST(request: NextRequest) {
     // tap o un retry del fetch generaba un segundo pago por la misma orden.
     const { data: estadoOrdenes, error: errEstado } = await supabase
       .from('ordenes')
-      .select('id, estado, total, descuento')
+      .select('id, estado, total')
       .in('id', ordenesACerrar);
     if (errEstado) throw errEstado;
 
@@ -156,23 +152,14 @@ export async function POST(request: NextRequest) {
     const montosReales: Record<string, number> = {};
     const desviados: string[] = [];
     for (const ordenId of ordenesACerrar) {
-      const itemsSuma = await sumaRealOrden(supabase, ordenId);
-      // El trigger calcula `total = Σitems − descuento`. El `descuento` se lee
-      // de la DB ya RESUELTO (porcentaje -> monto) y ya limitado al subtotal
-      // por la propia DB, asi que restarlo aca reproduce exactamente la cifra
-      // que guarda `ordenes.total`: no hay dos formas de calcularlo.
-      const descuento = Number(
-        estadoOrdenes?.find((o) => o.id === ordenId)?.descuento ?? 0
-      );
-      const suma = itemsSuma - descuento;
+      const suma = await sumaRealOrden(supabase, ordenId);
       montosReales[ordenId] = suma;
       const guardado = Number(estadoOrdenes?.find((o) => o.id === ordenId)?.total ?? 0);
       if (Math.abs(suma - guardado) > 0.01) {
         desviados.push(ordenId);
         console.error(
           `close-table BLOQUEADO: orden ${ordenId} tiene total=${guardado} ` +
-          `pero sus items (−descuento ${descuento}) suman ${suma}. ` +
-          `No se cobra un numero desincronizado.`
+          `pero sus items suman ${suma}. No se cobra un numero desincronizado.`
         );
       }
     }
@@ -180,7 +167,7 @@ export async function POST(request: NextRequest) {
       const detalle = desviados
         .map((id) => {
           const guardado = Number(estadoOrdenes?.find((o) => o.id === id)?.total ?? 0);
-          return `${id.slice(0, 8)}: total ₡${guardado} vs a cobrar ₡${montosReales[id]}`;
+          return `${id.slice(0, 8)}: total ₡${guardado} vs items ₡${montosReales[id]}`;
         })
         .join(' | ');
       return jsonError(
@@ -231,25 +218,6 @@ export async function POST(request: NextRequest) {
     };
 
     if (itemIds.length > 0) {
-      // DIVIDIR UNA CUENTA CON DESCUENTO NO CUADRA, y se prefiere parar a
-      // cobrar mal. El split cobra la suma BRUTA de los items seleccionados
-      // (`montoOrden` de más abajo), mientras que el descuento pertenece a la
-      // orden COMPLETA: aplicarlo a cada trozo lo cobraría dos veces y no
-      // aplicarlo le cobraría al cliente el importe que debió ahorrarse.
-      // La cajera quita el descuento o cobra la orden entera — mismo
-      // criterio que el guard de 409 de arriba: bloquear un cobro se
-      // resuelve en 5 segundos, cobrar de más en silencio no.
-      const conDescuento = ordenesACerrar.filter(
-        (id) => Number(estadoOrdenes?.find((o) => o.id === id)?.descuento ?? 0) > 0
-      );
-      if (conDescuento.length > 0) {
-        return jsonError(
-          'Esta orden tiene descuento aplicado, así que no se puede dividir en partes. ' +
-          'Quita el descuento o cobra la orden completa.',
-          409,
-        );
-      }
-
       const { data: paidItems } = await supabase
         .from('orden_items')
         .select('id, orden_id, subtotal')
@@ -361,14 +329,7 @@ export async function POST(request: NextRequest) {
       // El monto sale de los ITEMS, no de ordenes.total. El guard de arriba ya
       // garantiza que coinciden, pero cobrar la suma real deja el cobro atado a
       // la verdad de terreno y no a un campo que mantiene la DB por su cuenta.
-      // `descuento` viaja junto al total para poder volcarlo al comprobante:
-      // `cierreCaja` suma `comprobantes.descuento` para el renglón de
-      // descuentos del día, y sin esto el reporte daba ₡0 siempre.
-      const lista = ordenesACerrar.map((id) => ({
-        id,
-        total: montosReales[id] ?? 0,
-        descuento: Number(estadoOrdenes?.find((o) => o.id === id)?.descuento ?? 0),
-      }));
+      const lista = ordenesACerrar.map((id) => ({ id, total: montosReales[id] ?? 0 }));
 
       const totalMesa = lista.reduce((s, o) => s + Number(o.total || 0), 0);
       const cambioGlobal = montoRecibido > totalMesa ? montoRecibido - totalMesa : 0;
@@ -407,13 +368,7 @@ export async function POST(request: NextRequest) {
             orden_id: ordenId,
             pago_id: pagoRow.id,
             total: monto,
-            // `subtotal` = BRUTO antes del descuento. Como `monto` ya es
-            // `Σitems − descuento`, sumar el descuento de vuelta da
-            // exactamente `Σitems` y el `items_snapshot` de al lado cuadra
-            // con el renglón de la izquierda (antes decía ₡4.500 mientras
-            // los ítems sumaban ₡5.000, sin explicación para el cliente).
-            subtotal: Math.round((monto + orden.descuento) * 100) / 100,
-            descuento: orden.descuento,
+            subtotal: monto,
             items_snapshot: await fetchItemsSnapshot(supabase, ordenId),
           })
           .select('id')

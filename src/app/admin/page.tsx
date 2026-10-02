@@ -10,7 +10,6 @@ const AnalyticsDashboard = dynamic(() => import('@/components/analytics/Analytic
 import { type Product, type CartItem } from "@/types";
 import type { CierreCajaRow } from "@/types/db";
 import { formatColones } from "@/lib/format";
-import { metaPedido, itemsParaFactura } from "@/lib/invoicePedido";
 
 type MesaGroup = {
     mesa: string | null;
@@ -668,29 +667,32 @@ export default function AdminPortal() {
         orderTotal: number,
         pagoInfo?: { forma_pago: string; monto_recibido: number; vuelto: number },
         snapshot?: SnapshotItem[] | null,
+        tipo?: string,
         modo: 'descargar' | 'imprimir' = 'descargar'
     ) => {
         try {
-            // Ítems y encabezado salen del MISMO helper que usa /inicio, así
-            // el ticket de reimpresión y el del registro dicen lo idéntico.
-            const { items, total: bruto } = itemsParaFactura(snapshot);
+            const src = Array.isArray(snapshot) ? snapshot : [];
+            const formattedItems = src.map((it, index) => ({
+                id: it.id || String(index),
+                name: it.nombre ?? it.ARTICULO ?? 'Ítem',
+                price: Number(it.precio_unitario ?? it.PRECIO ?? 0),
+                quantity: Number(it.cantidad ?? it.CANTIDAD ?? 0),
+                category: "",
+                notas: it.notas ?? it.NOTAS ?? undefined,
+            }));
 
-            // La verdad del cobro es `comprobantes.total` (lo que de verdad se
-            // le cobró al cliente); los ítems dan el BRUTO y la diferencia es
-            // el descuento. Antes se imprimía Σítems como TOTAL y, con un 10%
-            // de descuento, el papel decía ₡5.000 cuando se habían cobrado
-            // ₡4.500. `orderTotal` es 0 solo en filas raras, y ahí se cae al
-            // bruto calculado.
-            const totalCobrado = Number(orderTotal) > 0 ? Number(orderTotal) : bruto;
-            const descuento = Math.max(0, Math.round((bruto - totalCobrado) * 100) / 100);
+            // Total real: snapshot si existe, si no el total persistido.
+            const computedTotal = formattedItems.reduce((s, it) => s + it.price * it.quantity, 0);
+            const finalTotal = computedTotal > 0 ? computedTotal : Number(orderTotal || 0);
 
             const { generateInvoice } = await import('@/lib/generateInvoice');
+            const mesaValue = tipo === 'llevar' ? "Llevar" : "Restaurante";
             const invoicePago = pagoInfo ? {
               forma_pago: (pagoInfo.forma_pago || 'efectivo').toLowerCase() as 'efectivo' | 'tarjeta' | 'sinpe' | 'mixto',
-              recibido: pagoInfo.monto_recibido || totalCobrado,
+              recibido: pagoInfo.monto_recibido || finalTotal,
               vuelto: pagoInfo.vuelto || 0,
             } : undefined;
-            await generateInvoice(items, totalCobrado, metaPedido(clienteName), ordenNu, invoicePago, modo, descuento);
+            await generateInvoice(formattedItems, finalTotal, { mesa: mesaValue, cliente: clienteName }, ordenNu, invoicePago, modo);
         } catch {
             alert("No se pudo generar el comprobante");
         }
@@ -1091,7 +1093,7 @@ export default function AdminPortal() {
                                             </div>
                                             <div style={{ display: 'flex', gap: '6px', marginTop: '6px' }}>
                                                 <button
-                                                    onClick={() => handleDownloadInvoice(order.orden_nu, order.cliente, order.total, { forma_pago: order.forma_pago, monto_recibido: order.monto_recibido, vuelto: order.vuelto }, order.items_snapshot)}
+                                                    onClick={() => handleDownloadInvoice(order.orden_nu, order.cliente, order.total, { forma_pago: order.forma_pago, monto_recibido: order.monto_recibido, vuelto: order.vuelto }, order.items_snapshot, order.tipo)}
                                                     style={{
                                                         padding: '4px 10px', fontSize: '0.7rem', fontWeight: 600,
                                                         color: '#1a73e8', background: 'var(--primary-surface)', border: 'none', borderRadius: '4px', cursor: 'pointer'
@@ -1100,7 +1102,7 @@ export default function AdminPortal() {
                                                     📄 FACTURA
                                                 </button>
                                                 <button
-                                                    onClick={() => handleDownloadInvoice(order.orden_nu, order.cliente, order.total, { forma_pago: order.forma_pago, monto_recibido: order.monto_recibido, vuelto: order.vuelto }, order.items_snapshot, 'imprimir')}
+                                                    onClick={() => handleDownloadInvoice(order.orden_nu, order.cliente, order.total, { forma_pago: order.forma_pago, monto_recibido: order.monto_recibido, vuelto: order.vuelto }, order.items_snapshot, order.tipo, 'imprimir')}
                                                     style={{
                                                         padding: '4px 10px', fontSize: '0.7rem', fontWeight: 600,
                                                         color: 'var(--primary)', background: 'var(--primary-surface)', border: 'none', borderRadius: '4px', cursor: 'pointer'

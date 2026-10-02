@@ -8,12 +8,6 @@ import type { ChartData } from 'chart.js';
 import { Line, Bar, Doughnut, Chart } from 'react-chartjs-2';
 import { generateReportPDF } from '@/lib/generateReport';
 import { formatColones } from '@/lib/format';
-import { TooltipCard } from './panelUI';
-import type { Periodo } from '@/lib/demoStats';
-import PanelVentasPedidos from './PanelVentasPedidos';
-import PanelBalance from './PanelBalance';
-import PanelGastosInsumos from './PanelGastosInsumos';
-import PanelFinanzasPersonales from './PanelFinanzasPersonales';
 
 ChartJS.register(
   CategoryScale, LinearScale, BarElement, LineElement,
@@ -38,17 +32,6 @@ const COLORS = {
 };
 
 const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
-
-// ── Sub-pestañas del panel: los panoramas que pide la cliente ─────────────
-const VISTAS = [
-  { key: 'resumen', icono: '📊', label: 'Resumen' },
-  { key: 'ventas', icono: '🛒', label: 'Ventas y Pedidos' },
-  { key: 'balance', icono: '⚖️', label: 'Balance' },
-  { key: 'gastos', icono: '🧾', label: 'Gastos e Insumos' },
-  { key: 'personal', icono: '💸', label: 'Personales' },
-] as const;
-
-type Vista = (typeof VISTAS)[number]['key'];
 
 // ── Tipos de las respuestas de /api/analytics/* ──────────────────────────
 type DashboardData = {
@@ -130,9 +113,25 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
+function TooltipCard({ title, children, icon }: { title: string; children: React.ReactNode; icon: string }) {
+  return (
+    <div style={{ 
+      background: 'linear-gradient(135deg, var(--surface) 0%, var(--primary-surface) 100%)', 
+      borderRadius: '8px', 
+      padding: '12px',
+      border: '1px solid var(--surface-border)'
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+        <span style={{ fontSize: '1.1rem' }}>{icon}</span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>{title}</span>
+      </div>
+      <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5 }}>{children}</div>
+    </div>
+  );
+}
+
 export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
-  const [periodo, setPeriodo] = useState<Periodo>('mes');
-  const [vista, setVista] = useState<Vista>('resumen');
+  const [periodo, setPeriodo] = useState<string>('mes');
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [productsData, setProductsData] = useState<ProductsData | null>(null);
   const [trendsData, setTrendsData] = useState<TrendsData | null>(null);
@@ -154,10 +153,6 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
   const paretoRef = useRef<ChartJS<'bar'> | null>(null);
   const paymentRef = useRef<ChartJS<'doughnut', number[], string> | null>(null);
   const weekdayRef = useRef<ChartJS<'bar', number[], string> | null>(null);
-
-  // Callbacks estables: el hijo pinta las gráficas y acá guardamos la
-  // instancia (pasar el objeto ref por props dispara react-hooks/refs).
-  // (los objetos ref viajan por la prop `charts`; ver ResumenCharts)
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -251,141 +246,6 @@ export default function AnalyticsDashboard({ adminKey }: { adminKey: string }) {
     return labels[periodo] || periodo;
   }, [periodo]);
 
-  // ══════════════════ SHELL: header + sub-pestañas + ramas ══════════════════
-  // El Resumen vive en su propio componente para que las sub-pestañas nuevas
-  // (datos de demostración) sigan siendo navegables aunque la API falle.
-  return (
-    <div style={{ padding: '16px 0', maxWidth: '1400px', margin: '0 auto' }}>
-
-      {/* ===================== HEADER ===================== */}
-      <div style={{ 
-        background: 'var(--primary-gradient)',
-        borderRadius: '16px', padding: '24px', marginBottom: '20px', color: 'white',
-        boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
-      }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 'clamp(1.15rem, 5vw, 1.8rem)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
-              📊 Resumen de tu Restaurante
-            </h2>
-            <p style={{ margin: '8px 0 0 0', opacity: 0.9, fontSize: '0.95rem' }}>
-              Aquí ves cómo está funcionando tu negocio en <strong>{periodoLabel}</strong>
-            </p>
-          </div>
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {(['hoy', 'semana', 'mes', 'año', 'todo'] as Periodo[]).map(p => (
-              <button
-                key={p}
-                onClick={() => setPeriodo(p)}
-                style={{
-                  padding: '10px 20px', borderRadius: '24px', border: 'none', cursor: 'pointer',
-                  fontWeight: 700, fontSize: '0.85rem', textTransform: 'capitalize', minHeight: '44px',
-                  background: periodo === p ? 'white' : 'rgba(255,255,255,0.15)',
-                  color: periodo === p ? 'var(--primary)' : 'white',
-                  transition: 'all 0.2s',
-                  boxShadow: periodo === p ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
-                }}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* ===================== SUB-PESTAÑAS ===================== */}
-      <div className="stats-subtabs" style={{
-        display: 'flex', gap: '6px', padding: '6px', backgroundColor: 'var(--card-bg)',
-        borderRadius: '14px', marginBottom: '10px', border: '1px solid var(--surface-border)',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)', overflow: 'auto hidden',
-        WebkitOverflowScrolling: 'touch', scrollbarWidth: 'none'
-      }}>
-        <style>{`.stats-subtabs::-webkit-scrollbar { display: none; }`}</style>
-        {VISTAS.map(v => {
-          const activa = vista === v.key;
-          return (
-            <button
-              key={v.key}
-              onClick={() => setVista(v.key)}
-              aria-pressed={activa}
-              style={{
-                flex: '1 0 auto', minHeight: '46px', padding: '10px 14px', borderRadius: '10px',
-                border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '7px',
-                fontSize: 'clamp(0.75rem, 2.6vw, 0.88rem)', fontWeight: 700,
-                background: activa ? 'var(--primary-gradient)' : 'transparent',
-                color: activa ? '#ffffff' : 'var(--text-secondary)',
-                boxShadow: activa ? '0 2px 8px rgba(4,120,87,0.3)' : 'none'
-              }}
-            >
-              <span aria-hidden>{v.icono}</span>{v.label}
-            </button>
-          );
-        })}
-      </div>
-      <p style={{ margin: '0 0 18px 0', fontSize: '0.72rem', color: 'var(--text-muted)', textAlign: 'center' }}>
-        Los filtros de arriba (Hoy / Semana / Mes / Año / Todo) aplican a todas las secciones.
-      </p>
-
-      {/* ===================== RAMAS ===================== */}
-      {vista === 'resumen' && (
-        <ResumenPanel
-          loading={loading}
-          error={error}
-          dashboardData={dashboardData}
-          productsData={productsData}
-          trendsData={trendsData}
-          chartGrid={chartGrid}
-          chartRing={chartRing}
-          charts={{
-            trend: trendRef, peak: peakRef, donut: donutRef,
-            pareto: paretoRef, payment: paymentRef, weekday: weekdayRef
-          }}
-          onExportCSV={handleExportCSV}
-          onExportPDF={handleExportPDF}
-        />
-      )}
-      {vista === 'ventas' && <PanelVentasPedidos periodo={periodo} />}
-      {vista === 'balance' && <PanelBalance periodo={periodo} />}
-      {vista === 'gastos' && <PanelGastosInsumos periodo={periodo} />}
-      {vista === 'personal' && <PanelFinanzasPersonales periodo={periodo} />}
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// Sub-pestaña "Resumen": datos REALES de /api/analytics/* (no de demo).
-// ══════════════════════════════════════════════════════════════════════════
-// Se pasan los objetos ref (no callbacks) para que react-chartjs-2 reciba un
-// `ForwardedRef` directo y `react-hooks/refs` no lo lea como lectura de ref
-// dentro del render del hijo.
-type ResumenCharts = {
-  trend: React.RefObject<ChartJS<'line', number[], string> | null>;
-  peak: React.RefObject<ChartJS<'bar', number[], string> | null>;
-  donut: React.RefObject<ChartJS<'doughnut', number[], string> | null>;
-  pareto: React.RefObject<ChartJS<'bar'> | null>;
-  payment: React.RefObject<ChartJS<'doughnut', number[], string> | null>;
-  weekday: React.RefObject<ChartJS<'bar', number[], string> | null>;
-};
-
-type ResumenProps = {
-  loading: boolean;
-  error: string | null;
-  dashboardData: DashboardData | null;
-  productsData: ProductsData | null;
-  trendsData: TrendsData | null;
-  chartGrid: string;
-  chartRing: string;
-  charts: ResumenCharts;
-  onExportCSV: () => void;
-  onExportPDF: () => void;
-};
-
-function ResumenPanel({
-  loading, error, dashboardData, productsData, trendsData,
-  chartGrid, chartRing, charts, onExportCSV, onExportPDF,
-}: ResumenProps) {
-  const { trend: trendChart, peak: peakChart, weekday: weekdayChart, payment: paymentChart, donut: donutChart, pareto: paretoChart } = charts;
   if (loading) return (
     <div style={{ padding: '40px 16px', textAlign: 'center' }}>
       <div style={{ width: '48px', height: '48px', border: '4px solid var(--primary-surface)', borderTopColor: 'var(--primary)', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 16px' }}></div>
@@ -402,7 +262,7 @@ function ResumenPanel({
     </div>
   );
   
-  if (!dashboardData || !productsData || !trendsData) return null;
+  if (!dashboardData || !trendsData) return null;
 
   const { kpis, comparativa } = dashboardData;
   const totalIngresos = productsData?.total_ingresos || 0;
@@ -536,12 +396,50 @@ function ResumenPanel({
     ]
   };
 
-  // El contenedor (padding lateral, maxWidth, sin minHeight ni background
-  // propio) vive ahora en el shell: duplicarlo aquí restaría ~200px de
-  // contenido en un móvil de 360px. Sin fontFamily hereda Roboto como el
-  // resto del admin.
+  // Render
+  // El admin ya inyecta 16px laterales y minHeight/fondo: duplicarlos aquí dejaba
+  // solo 296px de contenido en un móvil de 360px y sumaba una pantalla extra de
+  // scroll. Por eso sin padding horizontal, sin minHeight y sin background propio
+  // (evita costura de color). Sin fontFamily hereda Roboto como el resto del admin.
   return (
-    <>
+    <div style={{ padding: '16px 0', maxWidth: '1400px', margin: '0 auto' }}>
+      
+      {/* ===================== HEADER ===================== */}
+      <div style={{ 
+        background: 'var(--primary-gradient)',
+        borderRadius: '16px', padding: '24px', marginBottom: '20px', color: 'white',
+        boxShadow: '0 4px 20px rgba(0,0,0,0.15)'
+      }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h2 style={{ margin: 0, fontSize: 'clamp(1.15rem, 5vw, 1.8rem)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '12px' }}>
+              📊 Resumen de tu Restaurante
+            </h2>
+            <p style={{ margin: '8px 0 0 0', opacity: 0.9, fontSize: '0.95rem' }}>
+              Aquí ves cómo está funcionando tu negocio en <strong>{periodoLabel}</strong>
+            </p>
+          </div>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {['hoy', 'semana', 'mes', 'año', 'todo'].map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriodo(p)}
+                style={{
+                  padding: '10px 20px', borderRadius: '24px', border: 'none', cursor: 'pointer',
+                  fontWeight: 700, fontSize: '0.85rem', textTransform: 'capitalize',
+                  background: periodo === p ? 'white' : 'rgba(255,255,255,0.15)',
+                  color: periodo === p ? 'var(--primary)' : 'white',
+                  transition: 'all 0.2s',
+                  boxShadow: periodo === p ? '0 2px 8px rgba(0,0,0,0.2)' : 'none'
+                }}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* ===================== SMART INSIGHTS ===================== */}
       <div style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-soft) 100%)', padding: '24px', borderRadius: '16px', marginBottom: '24px', border: '1px solid var(--accent-soft)', boxShadow: '0 4px 12px rgba(217,119,6,0.15)' }}>
         <h3 style={{ margin: '0 0 16px 0', fontSize: '1.2rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -661,7 +559,7 @@ function ResumenPanel({
           </div>
         </div>
         <div style={{ height: '280px' }}>
-          <Line ref={trendChart} data={trendData} options={{
+          <Line ref={trendRef} data={trendData} options={{
             responsive: true,
             maintainAspectRatio: false,
             plugins: { legend: { display: false } },
@@ -692,7 +590,7 @@ function ResumenPanel({
             )}
           </div>
           <div style={{ height: '220px' }}>
-            <Bar ref={peakChart} data={peakHoursData} options={{
+            <Bar ref={peakRef} data={peakHoursData} options={{
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { display: false } },
@@ -719,7 +617,7 @@ function ResumenPanel({
             )}
           </div>
           <div style={{ height: '220px' }}>
-            <Bar ref={weekdayChart} data={weekdayData} options={{
+            <Bar ref={weekdayRef} data={weekdayData} options={{
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { display: false } },
@@ -736,7 +634,7 @@ function ResumenPanel({
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '4px' }}>💳 Cómo Pagan tus Clientes</h3>
           <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Distribución de formas de pago</p>
           <div style={{ height: '200px', display: 'flex', justifyContent: 'center' }}>
-            <Doughnut ref={paymentChart} data={paymentData} options={{
+            <Doughnut ref={paymentRef} data={paymentData} options={{
               responsive: true,
               maintainAspectRatio: false,
               plugins: { 
@@ -764,7 +662,7 @@ function ResumenPanel({
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '4px' }}>🍽️ Qué se Vende Más</h3>
           <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Por categoría de producto</p>
           <div style={{ height: '200px' }}>
-            <Doughnut ref={donutChart} data={donutData} options={{
+            <Doughnut ref={donutRef} data={donutData} options={{
               responsive: true,
               maintainAspectRatio: false,
               plugins: { legend: { position: 'right', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } },
@@ -843,7 +741,7 @@ function ResumenPanel({
           </TooltipCard>
         </div>
         <div style={{ height: '300px' }}>
-          <Chart ref={paretoChart} type="bar" data={paretoData as unknown as ChartData<'bar'>} options={{
+          <Chart ref={paretoRef} type="bar" data={paretoData as unknown as ChartData<'bar'>} options={{
             responsive: true,
             maintainAspectRatio: false,
             plugins: { 
@@ -1066,14 +964,14 @@ function ResumenPanel({
 
       {/* ===================== BOTONES EXPORT ===================== */}
       <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px', paddingBottom: '40px' }}>
-        <button onClick={onExportCSV} style={{ 
+        <button onClick={handleExportCSV} style={{ 
           padding: '14px 28px', borderRadius: '12px', border: '2px solid var(--primary)', 
           background: 'var(--card-bg)', cursor: 'pointer', fontWeight: 700, color: 'var(--primary)',
           display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px'
         }}>
           📥 Exportar Excel
         </button>
-        <button onClick={onExportPDF} style={{ 
+        <button onClick={handleExportPDF} style={{ 
           padding: '14px 28px', borderRadius: '12px', border: 'none', 
           background: 'var(--primary-gradient)', cursor: 'pointer', fontWeight: 700, color: 'white',
           display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px',
@@ -1083,6 +981,6 @@ function ResumenPanel({
         </button>
       </div>
 
-    </>
+    </div>
   );
 }

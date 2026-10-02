@@ -16,31 +16,16 @@ export type { PostgrestError };
 export type OrdenRow = {
   id: string;
   mesa_id: string | null;
-  /**
-   * `NULL` = pedido individual (sin mesa). Antes de 0011 era NOT NULL y
-   * eso obligaba a clavar 99 en toda orden sin mesa — el bug "Mesa 99".
-   */
   mesa_numero: number | null;
-  /** `individual` = pedido suelto a nombre de una persona (modelo nuevo). */
-  tipo: 'mesa' | 'llevar' | 'individual';
+  tipo: 'mesa' | 'llevar';
   cliente_nombre: string | null;
   cliente_cedula: string | null;
   cliente_telefono: string | null;
   cliente_email: string | null;
   mesero_id: string | null;
   estado: 'abierta' | 'cerrada' | 'cancelada';
-  /**
-   * Estado de pago, mantenido por el trigger `trg_pagos_estado_pago`
-   * a partir de la suma de `pagos`. Se separa de `estado`: una orden
-   * puede estar abierta y ya pagada.
-   */
-  estado_pago: 'pendiente' | 'parcial' | 'pagado';
   subtotal: number;
-  /** Monto YA RESUELTO que descuenta el trigger (no capturado a mano). */
   descuento: number;
-  /** Intención capturada en el formulario: `monto` (₡) o `porcentaje` (%). */
-  descuento_tipo: 'monto' | 'porcentaje';
-  descuento_valor: number;
   descuento_motivo: string | null;
   total: number;
   notas: string | null;
@@ -59,19 +44,7 @@ export type OrdenItemRow = {
   cantidad: number;
   notas: string | null;
   subtotal: number;
-  /**
-   * `item` = producto del menú · `extra` = cargo personalizado agregado
-   * en el formulario. Los extras van como línea para que entren solos en
-   * `SUM(subtotal)` y el guard de cobro siga cuadrando sin trucos.
-   */
-  tipo_linea: 'item' | 'extra';
-  /**
-   * `entregado` lo restaura 0015 (venía en 0001 y el check vivo lo perdió).
-   * Es el estado de los `tipo_linea='extra'`: **no hay nada que preparar**,
-   * así que queda fuera de `in ('pendiente','preparando','listo')` de la KDS
-   * pero sigue contando en `Σitems` porque el trigger solo excluye 'cancelado'.
-   */
-  estado_kds: 'pendiente' | 'preparando' | 'listo' | 'entregado' | 'cancelado' | null;
+  estado_kds: 'pendiente' | 'preparando' | 'listo' | 'cancelado' | null;
   listo: boolean | null;
   hora_registro: string;
   created_at: string;
