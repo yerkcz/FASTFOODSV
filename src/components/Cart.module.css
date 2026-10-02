@@ -254,3 +254,191 @@
 .mobileToggle {
     display: none;
 }
+/* ── Ajustes de la venta: descuento, cargo extra y total ────────────────────
+   Formulario individual (sin mesa). Mobile-first: campos de 44px para que
+   el pulgar acierte en pantallas de 390–440px (Redmi Note 15 Pro). */
+.ventaBox {
+    border-top: 1.5px dashed var(--surface-border);
+    padding-top: 12px;
+    margin-top: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.filaRow {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.filaLabel {
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+    width: 100%;
+}
+
+.segmented {
+    display: flex;
+    border: 1.5px solid var(--surface-border);
+    border-radius: 9px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+.seg {
+    min-width: 44px;
+    height: 42px;
+    border: 0;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    font-weight: 700;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.segOn {
+    composes: seg;
+    background: var(--primary-gradient);
+    color: #fff;
+}
+
+.campo {
+    height: 42px;
+    min-width: 0;
+    padding: 0 10px;
+    font-size: 0.9rem;
+    border: 1.5px solid var(--surface-border);
+    border-radius: 9px;
+    background: var(--surface);
+    color: var(--text-primary);
+    flex: 1 1 74px;
+}
+
+.campoSm {
+    composes: campo;
+    flex: 0 1 74px;
+}
+
+.addBtn {
+    height: 42px;
+    min-width: 44px;
+    padding: 0 14px;
+    border: 0;
+    border-radius: 9px;
+    background: var(--primary-gradient);
+    color: #fff;
+    font-size: 1.25rem;
+    font-weight: 800;
+    line-height: 1;
+    cursor: pointer;
+    touch-action: manipulation;
+    flex-shrink: 0;
+}
+
+.addBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.extraLinea {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.84rem;
+    padding: 6px 8px;
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: 8px;
+}
+
+.extraNombre {
+    flex: 1;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.extraMonto {
+    font-weight: 700;
+    color: var(--primary);
+}
+
+.extraQuitar {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--danger);
+    font-size: 1rem;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+.resumen {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 6px;
+}
+
+.resumenRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 0.88rem;
+    color: var(--text-secondary);
+}
+
+.resumenDesc {
+    color: var(--danger);
+    font-weight: 600;
+}
+
+.totalInput {
+    font-size: 1.5rem;
+    font-weight: 800;
+    text-align: right;
+    color: var(--primary);
+    background: transparent;
+    border: 0;
+    border-bottom: 2px dashed var(--surface-border);
+    padding: 0 4px;
+    width: 150px;
+    min-height: 44px;
+    outline: none;
+}
+
+.totalInput::placeholder {
+    color: var(--primary);
+    opacity: 0.55;
+}
+
+.totalInput:focus {
+    border-bottom-color: var(--primary);
+}
+
+.totalWrap {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.totalReset {
+    width: 34px;
+    height: 34px;
+    border: 1.5px solid var(--surface-border);
+    border-radius: 50%;
+    background: var(--surface);
+    color: var(--text-secondary);
+    font-size: 1rem;
+    cursor: pointer;
+    touch-action: manipulation;
+}

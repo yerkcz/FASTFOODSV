@@ -10,16 +10,9 @@ import { formatColones } from "@/lib/format";
 
 const API_KEY = process.env.NEXT_PUBLIC_SELF_ORDER_API_KEY || "";
 
-// Preferred category order for better cognitive flow
-const CATEGORY_ORDER = [
-  "Cocina",
-  "Snacks & Entradas",
-  "Bebidas Frías",
-  "Café & Calientes",
-  "Cócteles & Licores",
-  "Postres",
-  "Extras",
-];
+// Orden de categorías del menú nuevo de Delissia (`docs/Delissia/Menu NUevo.txt`).
+// Solo existen estas dos: cualquier otra cae al `else` y se ordena alfabético.
+const CATEGORY_ORDER = ["Típicos", "Deli"];
 
 function sortCategories(cats: string[]): string[] {
   return cats.sort((a, b) => {
@@ -33,54 +26,40 @@ function sortCategories(cats: string[]): string[] {
   });
 }
 
-function validateOrderBeforeSubmit(items: CartItem[], tableId: string): string | null {
+function validateOrderBeforeSubmit(items: CartItem[], totalFinal: number): string | null {
   if (items.length === 0) return 'Agrega al menos un producto';
-  if (!tableId || tableId.trim() === '' || tableId === 'Mesa --') return 'Asigna una mesa válida';
   if (items.some(i => i.price < 0 || isNaN(i.price))) return 'Precio inválido en orden';
   if (items.some(i => i.quantity < 1)) return 'Cantidad inválida';
+  // La venta es INDIVIDUAL: no hay mesa que asignar. Lo único que no se puede
+  // cobrar es un total no positivo (ej. un descuento que se lo lleva todo).
+  if (!isFinite(totalFinal) || totalFinal <= 0) return 'El total debe ser mayor a ₡0';
   return null;
 }
 
 export default function POSPage() {
   const router = useRouter();
-  const [mesaName, setMesaName] = useState("Mesa --");
+  // El POS ya no depende de una mesa: sin `?mesa=` la venta es INDIVIDUAL
+  // (0011). `?cliente=`/`?nombre=` solo sirven para precargar el nombre de la
+  // venta, y `?waiter_mode=true` sigue sirviendo para el modo lista.
   const [productsList, setProductsList] = useState<Product[]>([]);
   const [isWaiterMode, setIsWaiterMode] = useState(false);
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Initialize table from URL param (e.g. ?mesa=9&nombre=Juan) o ?llevar=Juan
   useEffect(() => {
     if (typeof window !== "undefined") {
       const params = new URLSearchParams(window.location.search);
-      const mesaParam = params.get("mesa");
       const nombreParam = params.get("nombre");
       const llevarParam = params.get("llevar");
       const waiterParam = params.get("waiter_mode");
 
-      if (!mesaParam && !llevarParam && waiterParam !== "true") {
-        router.replace('/inicio');
-        return;
-      }
+      if (waiterParam === "true") setIsWaiterMode(true);
 
-      if (waiterParam === "true") {
-        setIsWaiterMode(true);
-      }
-
-      if (mesaParam) {
-        const isNumeric = /^\d+$/.test(mesaParam.trim());
-        setMesaName(isNumeric ? `Mesa ${mesaParam.trim()}` : mesaParam.trim());
-      } else if (llevarParam) {
-        setMesaName(`🥡 ${llevarParam.trim()}`);
-      } else if (waiterParam === "true") {
-        setMesaName("Mesa Principal");
-      }
-
-      if (nombreParam || llevarParam) {
-        const name = nombreParam || llevarParam || "";
-        setCliente(name);
-        localStorage.setItem(`eas_name`, name);
+      const nombre = nombreParam || llevarParam || "";
+      if (nombre) {
+        setCliente(nombre);
+        localStorage.setItem("eas_name", nombre);
       } else {
-        const savedName = localStorage.getItem(`eas_name`);
+        const savedName = localStorage.getItem("eas_name");
         if (savedName) setCliente(savedName);
       }
     }
@@ -105,15 +84,27 @@ export default function POSPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
 
-  const [isTableOccupied, setIsTableOccupied] = useState<boolean | null>(null);
-  const [isCheckingTable, setIsCheckingTable] = useState(true);
-  const [isOwner, setIsOwner] = useState(false);
-  const [isGuest, setIsGuest] = useState(false);
-  const [existingOrdenNu, setExistingOrdenNu] = useState<string | null>(null);
-  const [isBlocked, setIsBlocked] = useState(false);
-  
-  // Order info — mesa is fixed
+  // ── Datos de la venta (todo individual, sin mesa) ─────────────────────────
   const [cliente, setCliente] = useState("");
+
+  // Descuento: `porcentaje` o `monto`. El valor lo resuelve la DB en el
+  // trigger `trg_recalcular_total_orden` (con clamp a subtotal), así que aquí
+  // solo calculamos el número que se le va a ENVIAR, nunca el total final.
+  const [descTipo, setDescTipo] = useState<"porcentaje" | "monto">("porcentaje");
+  const [descValor, setDescValor] = useState("");
+  const [descMotivo, setDescMotivo] = useState("");
+
+  // Cargos extra (delivery, propina simbólica, empaque…): van como LÍNEA en
+  // `orden_items` con `tipo_linea='extra'`, no como número suelto, para que
+  // entren solos en SUM(subtotal) y el guard de cobro siga cuadrando.
+  const [extras, setExtras] = useState<{ nombre: string; monto: number }[]>([]);
+  const [extraNombre, setExtraNombre] = useState("");
+  const [extraMonto, setExtraMonto] = useState("");
+
+  // Total editable. Si queda vacío se usa el calculado; si el cajero teclea
+  // uno distinto, se traduce a un descuento en MONTOS (bruto − total) para no
+  // añadir una segunda fuente de verdad del total.
+  const [totalManual, setTotalManual] = useState("");
 
   // Cart quantities map for fast lookup
   const cartQtyMap = useMemo(() => {
@@ -139,51 +130,11 @@ export default function POSPage() {
         const data = await res.json();
 
         if (data.products) {
-          // Re-map categories intuitively on the frontend
-          const remapped = data.products.map((p: Product) => {
-            const name = p.name.toLowerCase();
-            let newCat = p.category;
-
-            if (
-              name.includes("licor") || name.includes("vino") || name.includes("gin") ||
-              name.includes("imperial") || name.includes("bavaria") || name.includes("aperol") ||
-              name.includes("tequila") || name.includes("ron") || p.category === "Bebidas Alcohólicas"
-            ) {
-              newCat = "Cócteles & Licores";
-            } else if (
-              name.includes("churro") || name.includes("helado") || name.includes("banana split") ||
-              p.category === "Postres"
-            ) {
-              newCat = "Postres";
-            } else if (
-              name.includes("cafe") || name.includes("café") || name.includes("capuchino") ||
-              name.includes("capucchino") || name.includes("chocolate caliente") ||
-              name.includes("aguadulce") || p.category === "Bebidas Calientes"
-            ) {
-              newCat = "Café & Calientes";
-            } else if (
-              name.includes("limonada") || name.includes("coca cola") || name.includes("fanta") ||
-              name.includes("jugo") || name.includes("batido") || name.includes("agua") ||
-              name.includes("frio") || name.includes("frío") || p.category.includes("Frias") || p.category.includes("Frías")
-            ) {
-              newCat = "Bebidas Frías";
-            } else if (
-              name.includes("dedos") || name.includes("bizcocho") || name.includes("arepa") ||
-              name.includes("patacon") || name.includes("patacón") || p.category === "Panadería y Snacks"
-            ) {
-              newCat = "Snacks & Entradas";
-            } else if (
-              name.includes("extra") || name.includes("adicional") || p.category === "Acompañamientos"
-            ) {
-              newCat = "Extras";
-            } else if (p.category === "Platos Principales" || p.category === "Cocina") {
-              newCat = "Cocina";
-            }
-
-            return { ...p, category: newCat };
-          });
-
-          setProductsList(remapped);
+          // El menú nuevo de Delissia ya viene con sus dos categorías reales
+          // (Típicos / Deli). El remap viejo reetiquetaba por nombre de
+          // producto contra categorías que ya no existen, así que se elimina:
+          // si el menú cambia, cambia aquí.
+          setProductsList(data.products as Product[]);
         }
       } catch (error) {
         console.error("Error fetching menu:", error);
@@ -194,69 +145,6 @@ export default function POSPage() {
     }
     fetchMenu();
   }, []);
-
-  // Fetch Table Status
-  useEffect(() => {
-    async function checkTableStatus() {
-        if (mesaName === "Mesa --" || mesaName === "Mesa Principal") {
-          // If we are actively on the initial placeholder and there's a param, we will eventually re-run.
-          // Let's just assume not occupied for dummy table, but don't mark as not checking immediately
-          // actually the other effect will set it to Mesa X soon.
-          setIsCheckingTable(false);
-          setIsTableOccupied(false);
-          return;
-        }
-
-      setIsCheckingTable(true);
-      try {
-        const savedToken = localStorage.getItem(`eas_token_${mesaName}`);
-        const savedGuestToken = localStorage.getItem(`eas_guest_token_${mesaName}`);
-        
-        const params = new URLSearchParams({ mesa: mesaName });
-        if (savedToken) params.append('session_token', savedToken);
-        if (savedGuestToken) params.append('guest_token', savedGuestToken);
-
-        const res = await fetch(`/api/table-status?${params.toString()}`, {
-          headers: { "x-api-key": API_KEY },
-        });
-
-        if (!res.ok) {
-          console.error("Failed to fetch table status");
-          setIsTableOccupied(false);
-        } else {
-          const data = await res.json();
-          setIsTableOccupied(data.isOccupied);
-          setIsOwner(data.isOwner || false);
-          setIsGuest(data.isGuest || false);
-          setExistingOrdenNu(data.isOwner ? data.orden_nu : null);
-          setIsBlocked(data.isBlocked || false);
-
-          // Clean up tokens if table is no longer occupied
-          if (!data.isOccupied) {
-            localStorage.removeItem(`eas_token_${mesaName}`);
-            localStorage.removeItem(`eas_guest_token_${mesaName}`);
-          }
-          
-          // Frictionless Auto-Join: Save auto-generated guest token if provided
-          if (data.guest_token) {
-            localStorage.setItem(`eas_guest_token_${mesaName}`, data.guest_token);
-          }
-
-          // If guest token is no longer valid, remove it
-          if (data.isOccupied && !data.isGuest && savedGuestToken && !data.guest_token) {
-            localStorage.removeItem(`eas_guest_token_${mesaName}`);
-          }
-        }
-      } catch (err) {
-        console.error("Table status check error:", err);
-        setIsTableOccupied(false);
-      } finally {
-        setIsCheckingTable(false);
-      }
-    }
-
-    checkTableStatus();
-  }, [mesaName, API_KEY]);
 
   // Top 15 "Productos Vitales" derived from ANALISIS_DE_DATOS.MD
   const TOP_ITEMS = useMemo(() => [
@@ -415,43 +303,117 @@ export default function POSPage() {
     setWaiterNota("");
   };
 
+  // ── Cargos extra ──────────────────────────────────────────────────────────
+  const agregarExtra = useCallback(() => {
+    const monto = Number(extraMonto.replace(",", ".")) || 0;
+    const nombre = extraNombre.trim();
+    if (!nombre || monto <= 0) return;
+    setExtras((prev) => [...prev, { nombre, monto }]);
+    setExtraNombre("");
+    setExtraMonto("");
+  }, [extraNombre, extraMonto]);
 
-  const [isUnlocking, setIsUnlocking] = useState(false);
-  const handleOwnerUnlock = async () => {
-    setIsUnlocking(true);
-    try {
-      const savedToken = localStorage.getItem(`eas_token_${mesaName}`);
-      const res = await fetch("/api/client/unlock-table", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
-        body: JSON.stringify({ mesa: mesaName, session_token: savedToken })
-      });
-      if (res.ok) {
-        alert("¡Mesa desbloqueada! Tu invitado tiene 5 minutos para escanear el código QR y unirse a la orden.");
-      } else {
-        alert("No se pudo desbloquear la mesa. Verifica con el mesero.");
-      }
-    } catch(e) {
-      console.error(e);
-      alert("Error de conexión al intentar desbloquear la mesa.");
-    }
-    setIsUnlocking(false);
-  };
+  const quitarExtra = useCallback((idx: number) => {
+    setExtras((prev) => prev.filter((_, i) => i !== idx));
+  }, []);
 
-  const total = useMemo(
+
+  // ── Dinero de la venta ─────────────────────────────────────────────────────
+  // `bruto` = Σ ítems + extras. El descuento se calcula AQUÍ SOLO para
+  // mostrarlo: la cifra que manda es la que resuelve la DB en el trigger
+  // `trg_recalcular_total_orden`, que usa la misma fórmula con el mismo
+  // clamp (nunca descuenta más que el subtotal). Así la UI y el backend no
+  // pueden divergir, y el API jamás recibe un `total` escrito a mano.
+  const subtotal = useMemo(
     () => cart.reduce((sum, item) => sum + item.price * item.quantity, 0),
     [cart]
   );
+
+  const extrasTotal = useMemo(() => extras.reduce((s, e) => s + e.monto, 0), [extras]);
+  const bruto = subtotal + extrasTotal;
+
+  const descuentoCalculado = useMemo(() => {
+    const v = Math.abs(Number(String(descValor).replace(",", ".")) || 0);
+    if (v <= 0 || bruto <= 0) return 0;
+    if (descTipo === "porcentaje") return Math.min(bruto, (bruto * Math.min(v, 100)) / 100);
+    return Math.min(bruto, v);
+  }, [descTipo, descValor, bruto]);
+
+  const totalCalculado = Math.max(0, bruto - descuentoCalculado);
+
+  /**
+   * Total editable (campo en el formulario). Si queda vacío se usa el
+   * calculado; si el cajero teclea otro, ese manda y se convierte en un
+   * DESCUENTO EN MONTOS (bruto − total) para no añadir una segunda fuente de
+   * verdad del total. Un total mayor al bruto no se puede representar — eso
+   * es un cargo extra, y justo para eso existe la fila de extras.
+   */
+  const totalFinal = useMemo(() => {
+    if (totalManual.trim() === "") return totalCalculado;
+    const tecleado = Number(totalManual.replace(",", ".")) || 0;
+    return Math.max(0, Math.min(tecleado, bruto));
+  }, [totalManual, totalCalculado, bruto]);
+
+  /**
+   * Descuento REAL de esta venta: `bruto − totalFinal`. Se usa para pintar el
+   * renglón del resumen, de modo que lo que ve el cajero en pantalla es
+   * exactamente lo que va a registrar la DB — ni el % tecleado ni un número
+   * calculado por otro lado.
+   */
+  const descuentoAplicado = Math.max(0, Math.round((bruto - totalFinal) * 100) / 100);
+
+  /** Lo que se le manda al API como `descuento` (null = sin descuento). */
+  const descuentoPayload = useMemo(() => {
+    const num = Math.abs(Number(String(descValor).replace(",", ".")) || 0);
+    const motivo = descMotivo.trim() ? descMotivo.trim() : undefined;
+
+    // Total tecleado a mano: manda el resultado, en monto.
+    if (totalManual.trim() !== "") {
+      const monto = descuentoAplicado;
+      return monto > 0 ? { tipo: "monto" as const, valor: monto, motivo } : null;
+    }
+
+    // Sin total manual: manda el % o el monto que eligió el cajero (queda
+    // registrado como regla, no como número mágico) y la DB lo resuelve
+    // contra el bruto del momento.
+    if (num <= 0) return null;
+    return { tipo: descTipo, valor: num, motivo };
+  }, [totalManual, descuentoAplicado, descValor, descMotivo, descTipo]);
 
   const totalItems = useMemo(
     () => cart.reduce((sum, item) => sum + item.quantity, 0),
     [cart]
   );
 
+  /** Vuelve a dejar la venta en blanco (no el carrito: eso lo hace clearCart). */
+  const resetVenta = useCallback(() => {
+    setCliente("");
+    setDescValor("");
+    setDescMotivo("");
+    setExtras([]);
+    setExtraNombre("");
+    setExtraMonto("");
+    setTotalManual("");
+  }, []);
+
   const handleConfirmInvoice = async () => {
-    const errorValidation = validateOrderBeforeSubmit(cart, mesaName);
+    const errorValidation = validateOrderBeforeSubmit(cart, totalFinal);
     if (errorValidation) {
       setErrorMsg(errorValidation);
+      return;
+    }
+
+    // Un total tecleado MAYOR al bruto no se puede cobrar: el descuento es
+    // siempre ≥ 0 y la DB no acepta un total por encima de la suma de los
+    // items. En vez de cobrar otro número distinto al que ve el cajero, se
+    // corta aquí y se le explica (si necesita cobrar más, que agregue un
+    // cargo extra).
+    const tecleado = Number(totalManual.replace(",", ".")) || 0;
+    if (totalManual.trim() !== "" && tecleado > bruto + 0.01) {
+      setErrorMsg(
+        `El total no puede superar los ${formatColones(bruto)} de esta venta. ` +
+          "Si es un cargo adicional, agrégalo como cargo extra."
+      );
       return;
     }
 
@@ -459,26 +421,27 @@ export default function POSPage() {
     setErrorMsg("");
 
     try {
-      const isLlevar = mesaName.startsWith("🥡");
-      const mesaForApi = isLlevar ? "99" : mesaName;
-
       const res = await fetch("/api/order", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": API_KEY,
-        },
+        headers: { "Content-Type": "application/json", "x-api-key": API_KEY },
         body: JSON.stringify({
-          mesa: mesaForApi,
-          cliente,
-          tipo: isLlevar ? "llevar" : "mesa",
-          waiter_mode: isWaiterMode,
+          // Sin `mesa`: el API marca la orden como `tipo:'individual'` y deja
+          // `mesa_numero` en NULL. Cada envío es una venta propia y cerrable
+          // por su cuenta.
+          tipo: "individual",
+          cliente: cliente.trim(),
           items: cart.map((i) => ({
             name: i.name,
             price: i.price,
             quantity: i.quantity,
-            notas: i.notas
+            notas: i.notas,
           })),
+          ...(descuentoPayload ? { descuento: descuentoPayload } : {}),
+          extras: extras.map((e) => ({ nombre: e.nombre, monto: e.monto })),
+          // NOTA: no se manda ningún `pago`/abono. `close-table` cobra el
+          // total completo al cerrar, así que un abono aquí se cobraría dos
+          // veces. El abono inicial (50% de `PeticionCliente` #4) se habilita
+          // junto con el cobro por saldo pendiente.
         }),
       });
 
@@ -487,115 +450,28 @@ export default function POSPage() {
 
       const ordenNu = data.orden_nu;
 
-      // Save the session_token if this is a new order
-      if (data.session_token) {
-        localStorage.setItem(`eas_token_${mesaName}`, data.session_token);
-        setIsOwner(true);
-        setExistingOrdenNu(ordenNu);
-      }
-
-
-
-      // Show success
       setShowConfirm(false);
       setCartOpen(false);
       clearCart();
+      resetVenta();
       setOrderSuccess(ordenNu);
 
-      // Waiter mode: redirect to /mesas after 2s so staff sees active tables
+      // Modo lista: vuelve a /inicio (la vista de mesas ya no existe) para
+      // que el personal vea el registro de órdenes del día.
       if (isWaiterMode) {
         redirectTimerRef.current = setTimeout(() => {
-          router.push('/mesas');
+          router.push("/inicio");
         }, 2000);
       } else {
-        // Auto-dismiss success after 5 seconds for self-order mode
         setTimeout(() => setOrderSuccess(null), 5000);
       }
-
-      // Lock the table now that an order was submitted successfully
-      setIsTableOccupied(true);
     } catch (error: unknown) {
       console.error("Order processing error:", error);
-      const errorMessage = error instanceof Error ? error.message : 'Error desconocido';
-      setErrorMsg(errorMessage);
-
-      // If it failed because the table became occupied, trigger the lock screen
-      if (errorMessage.includes("ya tiene una orden") || errorMessage.includes("Ingresa el PIN")) {
-        setTimeout(() => {
-          setIsTableOccupied(true);
-          setShowConfirm(false);
-          setCartOpen(false);
-        }, 4000);
-      }
+      setErrorMsg(error instanceof Error ? error.message : "Error desconocido");
     } finally {
       setIsSubmitting(false);
     }
   };
-
-  // No mesa parameter provided — show redirecting prompt
-  if (mesaName === "Mesa --") {
-    return (
-      <div className="pos-layout" style={{ justifyContent: "center", alignItems: "center", display: "flex", minHeight: "100dvh" }}>
-        <div style={{ textAlign: "center", padding: "40px 20px" }}>
-          <div className="loading-spinner" style={{ margin: "0 auto", marginBottom: "16px" }} />
-          <p style={{ fontSize: "1rem", color: "#5f6368" }}>
-            Redirigiendo a Inicio...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (isCheckingTable) {
-    return (
-      <div className="pos-layout" style={{ justifyContent: "center", alignItems: "center", display: "flex", minHeight: "100vh" }}>
-        <div className="empty-state">
-          <div className="loading-spinner" />
-          <p className="loading-text">Verificando mesa...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Mesa Bloqueada UI
-  if (isTableOccupied && !isOwner && !isGuest && !isWaiterMode) {
-    return (
-      <div className="pos-layout">
-        <div className="pos-main" style={{ display: "flex", flexDirection: "column", height: "100vh" }}>
-          {/* ===== HEADER ===== */}
-          <div className="header" style={{ flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-              <Image src="/logo.svg" alt="easystem" width={40} height={40} className="header-logo" priority />
-              <div>
-                <h1 style={{ fontSize: "1.1rem", fontWeight: 800, lineHeight: 1.2, color: "#eef7f0" }}>easystem</h1>
-                <p style={{ fontSize: "0.68rem", color: "rgba(238,247,240,0.45)", letterSpacing: "1px", textTransform: "uppercase" }}>
-                  Menú Digital
-                </p>
-              </div>
-            </div>
-            <div style={{ fontSize: "0.72rem", color: "rgba(238,247,240,0.45)", textAlign: "right" }}>
-              {new Date().toLocaleDateString("es-CR", { weekday: "short", day: "numeric", month: "short" })}
-            </div>
-          </div>
-
-          {/* ===== BLOCKED SCREEN ===== */}
-          <div className="pin-screen">
-            <svg className="pin-icon" viewBox="0 0 24 24" fill="none" stroke="#e01b24" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-              <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-            </svg>
-            <h2 className="pin-title" style={{color: "#e01b24"}}>{mesaName} está protegida</h2>
-            <p className="pin-subtitle">
-              Esta mesa ya tiene una orden activa y se encuentra bloqueada por seguridad. 
-            </p>
-            <p className="pin-hint" style={{marginTop: "20px"}}>
-              Si eres parte de esta mesa, por favor <strong>solicita al Mesero</strong> que te habilite el acceso temporalmente, o pídele a quien abrió la orden que abra la mesa desde su pantalla.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <>
@@ -658,82 +534,20 @@ export default function POSPage() {
             </div>
           </div>
 
-          {/* ===== ORDER INFO ===== */}
-          {(isOwner || isGuest) && existingOrdenNu && !isWaiterMode && (
-            <div style={{
-              background: 'linear-gradient(135deg, #1a3d2a 0%, #2d5a3f 100%)',
-              padding: '12px 16px',
-              margin: '12px',
-              borderRadius: '8px',
-              border: '1px solid rgba(37, 211, 102, 0.3)',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px'
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#25d366" strokeWidth="2">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                  <polyline points="22 4 12 14.01 9 11.01" />
-                </svg>
-                <div>
-                  <div style={{ fontWeight: 600, color: '#25d366', fontSize: '0.9rem' }}>
-                    Orden activa: #{existingOrdenNu}
-                  </div>
-                  <div style={{ fontSize: '0.75rem', color: 'rgba(238,247,240,0.7)' }}>
-                    {isOwner 
-                      ? 'Los artículos que agregues se sumarán a tu cuenta actual'
-                      : 'Te has unido a la orden. Puedes agregar artículos.'}
-                  </div>
-                </div>
-              </div>
-              
-              {isOwner && (
-                <div className="pin-display">
-                  <div style={{ flex: 1 }}>
-                    <div className="pin-display-label">¿Llegó otro invitado?</div>
-                    <div className="pin-display-value" style={{fontSize: "0.8rem", marginTop: "4px"}}>Pídele escanear este QR</div>
-                  </div>
-                  <button 
-                    className={`pin-copy-btn`}
-                    onClick={handleOwnerUnlock}
-                    disabled={isUnlocking}
-                  >
-                    {isUnlocking ? 'Abriendo...' : 'Liberar Mesa'}
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
+          {/* ===== DATOS DE LA VENTA (individual, sin mesa) ===== */}
           <div className="order-info-bar">
-            {/* Mesa fija — not selectable */}
             <div className="order-field">
-              <label>Mesa</label>
-              <div className="mesa-badge">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 3h18v18H3z" />
-                  <path d="M3 9h18" />
-                  <path d="M9 21V9" />
-                </svg>
-                {mesaName}
-              </div>
+              <label htmlFor="input-cliente">Cliente de la venta (opcional)</label>
+              <input
+                id="input-cliente"
+                type="text"
+                placeholder="Ej. Yerick, Pedido mostrador..."
+                autoComplete="off"
+                value={cliente}
+                onChange={(e) => setCliente(e.target.value)}
+                maxLength={40}
+              />
             </div>
-            {!isWaiterMode && (
-              <div className="order-field">
-                <label htmlFor="input-cliente">Nombre (opcional)</label>
-                <input
-                  id="input-cliente"
-                  type="text"
-                  placeholder="Tu nombre..."
-                  autoComplete="off"
-                  value={cliente}
-                  onChange={(e) => setCliente(e.target.value)}
-                  maxLength={40}
-                  disabled={!!existingOrdenNu}
-                  style={{ opacity: existingOrdenNu ? 0.6 : 1 }}
-                />
-              </div>
-            )}
           </div>
 
           {/* ===== SEARCH ===== */}
@@ -875,9 +689,9 @@ export default function POSPage() {
         <div className="floating-cart-bar">
           <div className="floating-cart-info">
             <span className="floating-cart-count">
-              {totalItems} artículo{totalItems > 1 ? "s" : ""} en tu orden
+              {totalItems} artículo{totalItems > 1 ? "s" : ""} en la venta
             </span>
-            <span className="floating-cart-total">{formatColones(total)}</span>
+            <span className="floating-cart-total">{formatColones(totalFinal)}</span>
           </div>
           <button
             className="floating-cart-btn"
@@ -913,7 +727,7 @@ export default function POSPage() {
                     marginLeft: "auto",
                   }}
                 >
-                  {mesaName}
+                  {cliente.trim() || "Venta individual"}
                 </span>
                 <button
                   onClick={() => setCartOpen(false)}
@@ -1014,11 +828,155 @@ export default function POSPage() {
                 {errorMsg && (
                   <div className="error-inline">{errorMsg}</div>
                 )}
+                {/* ── Descuento ── */}
+                <div className={cartStyles.ventaBox}>
+                  <div className={cartStyles.filaRow}>
+                    <span className={cartStyles.filaLabel}>Descuento</span>
+                    <div className={cartStyles.segmented} role="group" aria-label="Tipo de descuento">
+                      <button
+                        type="button"
+                        className={descTipo === "porcentaje" ? cartStyles.segOn : cartStyles.seg}
+                        onClick={() => setDescTipo("porcentaje")}
+                        aria-pressed={descTipo === "porcentaje"}
+                        aria-label="Descuento por porcentaje"
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        className={descTipo === "monto" ? cartStyles.segOn : cartStyles.seg}
+                        onClick={() => setDescTipo("monto")}
+                        aria-pressed={descTipo === "monto"}
+                        aria-label="Descuento en colones"
+                      >
+                        ₡
+                      </button>
+                    </div>
+                    <input
+                      id="desc-valor"
+                      className={cartStyles.campoSm}
+                      inputMode="decimal"
+                      placeholder={descTipo === "porcentaje" ? "0 %" : "₡0"}
+                      value={descValor}
+                      onChange={(e) => setDescValor(e.target.value.replace(/[^0-9.,]/g, ""))}
+                      aria-label="Valor del descuento"
+                    />
+                    <input
+                      id="desc-motivo"
+                      className={cartStyles.campo}
+                      type="text"
+                      placeholder="Motivo (opcional)"
+                      value={descMotivo}
+                      onChange={(e) => setDescMotivo(e.target.value)}
+                      maxLength={60}
+                    />
+                  </div>
+
+                  {/* ── Cargo extra ── */}
+                  <div className={cartStyles.filaRow}>
+                    <span className={cartStyles.filaLabel}>
+                      Cargo extra (delivery, empaque…)
+                    </span>
+                    <input
+                      id="extra-nombre"
+                      className={cartStyles.campo}
+                      type="text"
+                      placeholder="Nombre"
+                      value={extraNombre}
+                      onChange={(e) => setExtraNombre(e.target.value)}
+                      maxLength={40}
+                    />
+                    <input
+                      id="extra-monto"
+                      className={cartStyles.campoSm}
+                      inputMode="decimal"
+                      placeholder="₡0"
+                      value={extraMonto}
+                      onChange={(e) => setExtraMonto(e.target.value.replace(/[^0-9.,]/g, ""))}
+                      aria-label="Monto del cargo extra"
+                    />
+                    <button
+                      type="button"
+                      className={cartStyles.addBtn}
+                      onClick={agregarExtra}
+                      disabled={
+                        !extraNombre.trim() ||
+                        !Number(extraMonto.replace(",", ".")) ||
+                        Number(extraMonto.replace(",", ".")) <= 0
+                      }
+                      aria-label="Agregar cargo extra"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {extras.map((e, i) => (
+                    <div key={`${e.nombre}-${i}`} className={cartStyles.extraLinea}>
+                      <span className={cartStyles.extraNombre}>{e.nombre}</span>
+                      <span className={cartStyles.extraMonto}>+{formatColones(e.monto)}</span>
+                      <button
+                        type="button"
+                        className={cartStyles.extraQuitar}
+                        onClick={() => quitarExtra(i)}
+                        aria-label={`Quitar ${e.nombre}`}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* ── Resumen ── */}
+                  <div className={cartStyles.resumen}>
+                    <div className={cartStyles.resumenRow}>
+                      <span>
+                        Subtotal ({totalItems} ítem{totalItems === 1 ? "" : "s"})
+                      </span>
+                      <span>{formatColones(subtotal)}</span>
+                    </div>
+                    {extrasTotal > 0 && (
+                      <div className={cartStyles.resumenRow}>
+                        <span>Cargos extra ({extras.length})</span>
+                        <span>+{formatColones(extrasTotal)}</span>
+                      </div>
+                    )}
+                    {descuentoAplicado > 0 && (
+                      <div className={`${cartStyles.resumenRow} ${cartStyles.resumenDesc}`}>
+                        <span>
+                          Descuento
+                          {descTipo === "porcentaje" && descValor
+                            ? ` ${descValor.replace(/[^\d.,]/g, "")} %`
+                            : ""}
+                        </span>
+                        <span>−{formatColones(descuentoAplicado)}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* ── Total (editable) ── */}
                 <div className={cartStyles.totalRow}>
                   <span className={cartStyles.totalLabel}>Total</span>
-                  <span className={cartStyles.totalAmount}>
-                    {formatColones(total)}
-                  </span>
+                  <div className={cartStyles.totalWrap}>
+                    <input
+                      id="total-manual"
+                      className={cartStyles.totalInput}
+                      inputMode="decimal"
+                      value={totalManual}
+                      placeholder={formatColones(totalCalculado)}
+                      onChange={(e) => setTotalManual(e.target.value.replace(/[^0-9.,]/g, ""))}
+                      aria-label="Total de la venta, editable"
+                    />
+                    {totalManual !== "" && (
+                      <button
+                        type="button"
+                        className={cartStyles.totalReset}
+                        onClick={() => setTotalManual("")}
+                        aria-label="Restablecer el total calculado"
+                      >
+                        ↺
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <button
                   className={cartStyles.invoiceBtn}
@@ -1029,7 +987,7 @@ export default function POSPage() {
                   disabled={cart.length === 0}
                   id="checkout-btn"
                 >
-                  {isOwner || isGuest ? "Agregar a la Orden" : "Enviar a Cocina"}
+                  {isWaiterMode ? "Enviar a Cocina" : "Registrar venta"}
                 </button>
                 {cart.length > 0 && (
                   <button
@@ -1056,16 +1014,22 @@ export default function POSPage() {
             className="modal-content"
             onClick={(e) => e.stopPropagation()}
           >
-            <h2>Confirmar orden</h2>
-            <p>Se enviará directamente a cocina.</p>
+            <h2>Confirmar venta</h2>
             <p>
-              <strong>{mesaName}</strong>
-              {cliente ? ` — ${cliente}` : ""}
+              {cliente.trim() || "Sin nombre — venta individual"}
             </p>
             <p style={{ fontSize: "0.8rem", color: "#8fa898" }}>
               {totalItems} artículo{totalItems > 1 ? "s" : ""}
+              {extras.length > 0
+                ? ` · ${extras.length} cargo${extras.length > 1 ? "s" : ""} extra`
+                : ""}
             </p>
-            <div className="modal-total">{formatColones(total)}</div>
+            {descuentoAplicado > 0 && (
+              <p style={{ fontSize: "0.85rem", color: "#e01b24", fontWeight: 600 }}>
+                Descuento: −{formatColones(descuentoAplicado)}
+              </p>
+            )}
+            <div className="modal-total">{formatColones(totalFinal)}</div>
 
             {errorMsg && (
               <div className="error-inline">{errorMsg}</div>
@@ -1085,7 +1049,7 @@ export default function POSPage() {
                 disabled={isSubmitting || cart.length === 0}
                 style={{ opacity: isSubmitting ? 0.7 : 1 }}
               >
-                {isSubmitting ? "Procesando..." : (isOwner ? "Agregar a mi orden" : "Confirmar")}
+                {isSubmitting ? "Procesando..." : "Registrar venta"}
               </button>
             </div>
           </div>
@@ -1100,15 +1064,11 @@ export default function POSPage() {
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           </div>
-          <h2 className="order-success-title">
-            {isOwner ? "¡Artículos Agregados!" : "¡Comanda Enviada!"}
-          </h2>
+          <h2 className="order-success-title">¡Venta registrada!</h2>
           <p className="order-success-sub">
             {isWaiterMode
-              ? `Orden #${orderSuccess} en cocina. Volviendo a Mesas...`
-              : isOwner
-                ? "Los artículos se sumaron a tu cuenta."
-                : `Tu pedido #${orderSuccess} ha sido enviado a la cocina.`
+              ? `Orden #${orderSuccess} en cocina. Volviendo a Órdenes...`
+              : `La venta #${orderSuccess} quedó registrada en Órdenes.`
             }
           </p>
           {isWaiterMode && (
@@ -1117,7 +1077,7 @@ export default function POSPage() {
               <button
                 onClick={() => {
                   if (redirectTimerRef.current) clearTimeout(redirectTimerRef.current);
-                  router.push('/mesas');
+                  router.push('/inicio');
                 }}
                 style={{
                   marginTop: '16px', padding: '12px 32px', background: 'rgba(255,255,255,0.15)',
@@ -1126,7 +1086,7 @@ export default function POSPage() {
                   touchAction: 'manipulation'
                 }}
               >
-                Ir a Mesas →
+                Ir a Órdenes →
               </button>
             </>
           )}

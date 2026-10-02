@@ -17,11 +17,12 @@ export type CartItem = Product & {
 export type OrderStatus = 'pendiente' | 'en_cocina' | 'listo' | 'entregado';
 
 export type OrderMeta = {
-  mesa: string;
-  cliente: string;
-  cliente_cedula?: string;
-  cliente_telefono?: string;
-  cliente_email?: string;
+  /**
+   * Etiqueta que se imprime en el encabezado del ticket. Ya no existe la
+   * idea de "mesa": es siempre `PEDIDO: <cliente>`, que armina `metaPedido()`
+   * en `@/lib/invoicePedido` para que `/admin` y `/inicio` impriman lo mismo.
+   */
+  encabezado: string;
 };
 
 export type Order = {
