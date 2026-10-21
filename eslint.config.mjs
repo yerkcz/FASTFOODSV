@@ -14,9 +14,7 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     // Artefactos de build. Estan en .gitignore, no son fuente del proyecto:
     // ESLint en flat config NO respeta .gitignore, asi que hay que listarlos.
-    // (.vercel es un residuo local; el deploy es Netlify.)
     ".netlify/**",
-    ".vercel/**",
   ]),
   {
     // scripts/*.js corre en Node como CommonJS: package.json no tiene
