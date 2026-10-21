@@ -1,0 +1,256 @@
+.sidebar {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    /* Extra space at bottom so footer clears iOS home bar */
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--card-bg);
+}
+
+.title {
+    font-size: 1.18rem;
+    font-weight: 800;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-primary);
+}
+
+.badge {
+    background: var(--primary-gradient);
+    color: white;
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 9px;
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(28, 198, 114, 0.3);
+}
+
+/* Items list */
+.items {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding-right: 2px;
+}
+
+.emptyMsg {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 40px 0;
+    font-style: italic;
+    font-size: 0.88rem;
+}
+
+/* Item card — 2-row layout for mobile readability */
+.item {
+    background: var(--surface);
+    border: 1px solid var(--surface-border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    /* Use column layout to prevent overflow */
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* Row 1: Item name + unit price (takes full width) */
+.itemInfo {
+    width: 100%;
+    min-width: 0;
+}
+
+.itemName {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    /* Allow wrapping — no truncation in cart, user needs to see full name */
+    white-space: normal;
+    line-height: 1.3;
+}
+
+.itemPrice {
+    font-size: 0.72rem;
+    color: var(--text-secondary);
+    margin-top: 2px;
+}
+
+/* Row 2: qty controls + item total + remove btn — all in one flex row */
+.itemRow2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.qtyControls {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
+
+.qtyBtn {
+    background: var(--surface-hover);
+    border: 1.5px solid var(--surface-border);
+    color: var(--text-primary);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s;
+    touch-action: manipulation;
+    flex-shrink: 0;
+}
+
+.qtyBtn:active {
+    background: var(--surface-border);
+    transform: scale(0.92);
+}
+
+.qty {
+    font-weight: 800;
+    font-size: 0.95rem;
+    min-width: 24px;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.itemTotal {
+    font-weight: 800;
+    color: var(--primary);
+    font-size: 0.92rem;
+    white-space: nowrap;
+    flex: 1;
+    text-align: right;
+}
+
+.removeBtn {
+    background: none;
+    border: none;
+    color: var(--danger);
+    opacity: 0.6;
+    cursor: pointer;
+    font-size: 1rem;
+    padding: 6px;
+    transition: all 0.2s;
+    border-radius: 6px;
+    flex-shrink: 0;
+    line-height: 1;
+    touch-action: manipulation;
+}
+
+.removeBtn:active {
+    opacity: 1;
+    background: var(--danger-soft);
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0)
+    }
+}
+
+/* Footer */
+.footer {
+    border-top: 1.5px solid var(--surface-border);
+    padding-top: 16px;
+    margin-top: 16px;
+    /* Ensure the Send-to-Kitchen / Confirm button is never hidden
+       behind the iOS home indicator or Android gesture bar */
+    padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+}
+
+.totalRow {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+}
+
+.totalLabel {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+
+.totalAmount {
+    font-size: 1.5rem;
+    font-weight: 800;
+    background: var(--primary-gradient);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.invoiceBtn {
+    width: 100%;
+    padding: 15px;
+    background: var(--primary-gradient);
+    color: white;
+    border: none;
+    border-radius: 14px;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.3);
+    touch-action: manipulation;
+}
+
+.invoiceBtn:active {
+    transform: scale(0.97);
+}
+
+.invoiceBtn:hover {
+    box-shadow: var(--card-shadow-hover);
+    transform: translateY(-1px);
+}
+
+.invoiceBtn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+    animation: none;
+}
+
+.clearBtn {
+    width: 100%;
+    padding: 10px;
+    background: transparent;
+    color: var(--danger);
+    border: 1.5px solid var(--danger);
+    opacity: 0.7;
+    border-radius: 10px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 8px;
+    transition: all 0.2s;
+}
+
+.clearBtn:active {
+    background: var(--danger-soft);
+    opacity: 1;
+}
+
+/* Mobile toggle — HIDDEN */
+.mobileToggle {
+    display: none;
+}

@@ -1,0 +1,68 @@
+import { createClient as createSupabaseClient, type PostgrestError, type SupabaseClient } from '@supabase/supabase-js';
+import { NextResponse } from 'next/server';
+import type { Database } from '@/types/database';
+
+const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY || '';
+
+// Con `Database`, `.from()` devuelve filas reales y `.insert()`/`.update()`
+// aceptan el payload sin que haya que castear el builder a `any`.
+let cachedClient: SupabaseClient<Database> | null = null;
+
+export function getServerSupabase(): SupabaseClient<Database> {
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+    throw new Error(
+      'Faltan SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en el entorno del servidor.'
+    );
+  }
+  if (!cachedClient) {
+    cachedClient = createSupabaseClient<Database>(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    });
+  }
+  return cachedClient;
+}
+
+export function jsonError(message: string, status = 400) {
+  return NextResponse.json({ error: message }, { status });
+}
+
+export function jsonOk(data: Record<string, unknown> = {}) {
+  return NextResponse.json(data, { status: 200 });
+}
+
+export async function callRpc(name: string, args: Record<string, unknown> = {}) {
+  const supabase = getServerSupabase();
+  // `name` llega como string plano y `Database` solo conoce las RPC declaradas
+  // en `@/types/database`. El casteo vive acá, en un solo lugar.
+  const rpc = supabase.rpc as (
+    n: string,
+    a: Record<string, unknown>,
+  ) => PromiseLike<{ data: unknown; error: PostgrestError | null }>;
+  const { data, error } = await rpc(name, args);
+  if (error) throw error;
+  return data;
+}
+
+// ponytail: CR is UTC-6 (no DST), midnight CR = 06:00 UTC
+const CR_OFFSET_HOURS = 6;
+
+export function getCRDate(offsetDays = 0): Date {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Costa_Rica',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(new Date());
+  const y = parseInt(parts.find(p => p.type === 'year')!.value);
+  const m = parseInt(parts.find(p => p.type === 'month')!.value);
+  const d = parseInt(parts.find(p => p.type === 'day')!.value) + offsetDays;
+  return new Date(Date.UTC(y, m - 1, d, CR_OFFSET_HOURS, 0, 0));
+}
+
+export async function nextDateCR(offsetDays = 0): Promise<{ start: string; end: string }> {
+  const start = getCRDate(offsetDays);
+  const end = new Date(start.getTime() + 86399999);
+  return { start: start.toISOString(), end: end.toISOString() };
+}
