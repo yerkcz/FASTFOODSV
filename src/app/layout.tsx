@@ -19,8 +19,8 @@ const roboto = Roboto({
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Permitir zoom: bloquearlo era un problema de accesibilidad en móvil.
+  viewportFit: "cover",
 };
 
 export const metadata: Metadata = {

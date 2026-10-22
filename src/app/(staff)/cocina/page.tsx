@@ -136,7 +136,7 @@ export default function KitchenDisplaySystem() {
       <div className="kds-root">
         <header className="kds-header">
           <div className="kds-header-left">
-            <Link href="/inicio" style={{ color: "white", display: "flex", padding: "6px", marginRight: "8px" }}>
+            <Link href="/inicio" aria-label="Volver" style={{ color: "white", display: "flex", alignItems: "center", justifyContent: "center", width: "44px", height: "44px", marginRight: "4px", flexShrink: 0 }}>
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                 <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
               </svg>
@@ -164,7 +164,7 @@ export default function KitchenDisplaySystem() {
     <div className="kds-root">
       <header className="kds-header">
         <div className="kds-header-left">
-          <Link href="/inicio" style={{ color: "white", display: "flex", padding: "6px", marginRight: "8px" }}>
+          <Link href="/inicio" aria-label="Volver" style={{ color: "white", display: "flex", alignItems: "center", justifyContent: "center", width: "44px", height: "44px", marginRight: "4px", flexShrink: 0 }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
             </svg>

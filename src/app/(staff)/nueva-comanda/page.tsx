@@ -36,7 +36,7 @@ export default function NuevaComandaPage() {
         <button
           onClick={() => router.push('/inicio')}
           aria-label="Volver"
-          style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '8px', display: 'flex' }}
+          style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />

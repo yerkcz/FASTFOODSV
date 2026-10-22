@@ -634,12 +634,12 @@ export default function MesasPage() {
         <div style={{ minHeight: "100dvh", backgroundColor: 'var(--background)', color: 'var(--text-primary)', fontFamily: 'var(--font-roboto), Roboto, sans-serif' }}>
             <header style={{ position: 'fixed', top: 0, left: 0, right: 0, height: '56px', backgroundColor: 'var(--accent)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 16px', boxShadow: '0 2px 4px rgba(0,0,0,0.2)', zIndex: 1000 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                    <a href="/inicio" style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '4px', display: 'flex' }}>
+                    <a href="/inicio" aria-label="Volver" style={{ background: 'none', border: 'none', color: 'white', cursor: 'pointer', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
                     </a>
                     <div style={{ fontSize: '1.25rem', fontWeight: 700 }}>Mesas en Servicio</div>
                 </div>
-                <div onClick={fetchTables} style={{ cursor: 'pointer', display: 'flex' }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg></div>
+                <div onClick={fetchTables} role="button" aria-label="Actualizar" style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '44px', height: '44px', flexShrink: 0 }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/></svg></div>
             </header>
 
             <div style={{ paddingTop: '70px', paddingBottom: '90px', paddingLeft: '16px', paddingRight: '16px', maxWidth: '800px', margin: '0 auto' }}>

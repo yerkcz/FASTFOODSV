@@ -184,7 +184,7 @@ const KDS_SUB_STYLES = `
 
   .kds-sub-back {
     color: white; display: flex; align-items: center; justify-content: center;
-    width: 32px; height: 32px; border-radius: 50%;
+    width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0;
   }
   .kds-sub-back:active { background: rgba(255,255,255,0.2); }
 
@@ -192,7 +192,8 @@ const KDS_SUB_STYLES = `
 
   .kds-sub-refresh {
     background: none; border: none; color: white; cursor: pointer;
-    width: 32px; height: 32px; display: flex; align-items: center; justify-content: center;
+    width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
   }
   .kds-sub-refresh:active { background: rgba(255,255,255,0.2); }
 
