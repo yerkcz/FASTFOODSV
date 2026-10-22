@@ -74,17 +74,37 @@ type CategoriaAdmin = { id: string; nombre: string };
 /** Respuesta de GET /api/cierre-caja. */
 type CierreTotales = {
     total_ordenes?: number;
+    total_comprobantes?: number;
     total_ingresos?: number;
     total_efectivo?: number;
     total_tarjeta?: number;
     total_sinpe?: number;
 };
 
+type CierreHistorial = {
+    id: string;
+    fecha: string;
+    total_ordenes: number;
+    total_comprobantes?: number;
+    total_ingresos: number;
+    total_efectivo: number;
+    fondo_inicial?: number;
+    gastos_efectivo?: number;
+    efectivo_esperado?: number;
+    efectivo_contado: number | null;
+    diferencia: number | null;
+    cerrado_at: string | null;
+};
+
 type CierreRes = {
     fecha?: string;
     totales?: CierreTotales;
     cierre?: CierreCajaRow | null;
+    abierto?: boolean;
     cerrado?: boolean;
+    efectivo_esperado?: number;
+    diferencia?: number | null;
+    historial?: CierreHistorial[];
 };
 
 
@@ -160,7 +180,10 @@ export default function AdminPortal() {
     // pero nunca funciono (insertaba `diferencia`, que es columna GENERATED) y
     // ningun lo consumia. Ver src/lib/cierreCaja.ts.
     const [cierre, setCierre] = useState<CierreRes | null>(null);
+    const [fondoInicial, setFondoInicial] = useState<string>("");
+    const [gastosEfectivo, setGastosEfectivo] = useState<string>("0");
     const [efectivoContado, setEfectivoContado] = useState<string>("");
+    const [abriendoCaja, setAbriendoCaja] = useState(false);
     const [cerrandoCaja, setCerrandoCaja] = useState(false);
 
     // Phase F: Add Products to Existing Order
@@ -654,7 +677,7 @@ export default function AdminPortal() {
     // ── Cierre de caja ────────────────────────────────────
     const fetchCierre = useCallback(async () => {
       try {
-        const res = await fetch("/api/cierre-caja");
+        const res = await fetch("/api/cierre-caja?historial=1");
         if (res.ok) setCierre(await res.json());
       } catch { /* ignore */ }
     }, []);
@@ -663,10 +686,42 @@ export default function AdminPortal() {
       if (adminTab === "caja") fetchCierre();
     }, [adminTab, fetchCierre]);
 
+    const abrirCaja = async () => {
+      const fondo = Number(fondoInicial);
+      if (!Number.isFinite(fondo) || fondo < 0) {
+        alert("Ingrese el fondo inicial en efectivo (0 o más).");
+        return;
+      }
+      setAbriendoCaja(true);
+      try {
+        const res = await fetch("/api/cierre-caja", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accion: "abrir", fondo_inicial: fondo }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || "No se pudo abrir la caja.");
+        } else {
+          setFondoInicial("");
+          await fetchCierre();
+        }
+      } catch {
+        alert("Error de conexión al abrir la caja.");
+      } finally {
+        setAbriendoCaja(false);
+      }
+    };
+
     const cerrarCaja = async () => {
       const contado = Number(efectivoContado);
+      const gastos = Number(gastosEfectivo);
       if (!Number.isFinite(contado) || contado < 0) {
         alert("Ingrese el efectivo contado en la caja (0 o más).");
+        return;
+      }
+      if (!Number.isFinite(gastos) || gastos < 0) {
+        alert("Ingrese los gastos de caja chica (0 o más).");
         return;
       }
       setCerrandoCaja(true);
@@ -674,7 +729,7 @@ export default function AdminPortal() {
         const res = await fetch("/api/cierre-caja", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ efectivo_contado: contado }),
+          body: JSON.stringify({ accion: "cerrar", efectivo_contado: contado, gastos_efectivo: gastos }),
         });
         const data = await res.json();
         if (!res.ok) {
@@ -683,6 +738,7 @@ export default function AdminPortal() {
           alert("La caja de hoy ya estaba cerrada. No se puede cerrar de nuevo.");
         }
         setEfectivoContado("");
+        setGastosEfectivo("0");
         await fetchCierre();
       } catch {
         alert("Error de conexión al cerrar la caja.");
@@ -761,7 +817,7 @@ export default function AdminPortal() {
             </div>
             <div style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
                 {onSync && (
-                    <div onClick={onSync} style={{ cursor: 'pointer', padding: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '50%' }}>
+                    <div onClick={onSync} role="button" aria-label="Actualizar" style={{ cursor: 'pointer', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255,255,255,0.1)', borderRadius: '50%', flexShrink: 0 }}>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.3"/>
                         </svg>
@@ -772,7 +828,7 @@ export default function AdminPortal() {
                     COMANDAR
                 </div>
                 {/* Salir Button */}
-                <Link href="/inicio" style={{ color: 'rgba(238,247,240,0.7)', textDecoration: 'none' }}>
+                <Link href="/inicio" aria-label="Salir" style={{ color: 'rgba(238,247,240,0.7)', textDecoration: 'none', width: '44px', height: '44px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
                 </Link>
             </div>
@@ -1010,55 +1066,110 @@ export default function AdminPortal() {
                                 <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"></rect><line x1="2" y1="10" x2="22" y2="10"></line></svg>
                             </div>
                             <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: '8px', fontWeight: 600 }}>Caja Diaria</div>
-                            <div style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-1px' }}>{formatColones(closedTotal)}</div>
-                            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px', fontWeight: 500 }}>{closedOrders.length} orden{closedOrders.length !== 1 ? 'es' : ''} procesada{closedOrders.length !== 1 ? 's' : ''} con éxito</div>
+                            <div style={{ fontSize: '3rem', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-1px' }}>{formatColones(cierre?.totales?.total_ingresos ?? closedTotal)}</div>
+                            <div style={{ fontSize: '0.9rem', color: 'var(--text-muted)', marginTop: '8px', fontWeight: 500 }}>
+                                {cierre?.totales?.total_ordenes ?? 0} comanda{(cierre?.totales?.total_ordenes ?? 0) !== 1 ? 's' : ''} · {cierre?.totales?.total_comprobantes ?? closedOrders.length} comprobante{(cierre?.totales?.total_comprobantes ?? closedOrders.length) !== 1 ? 's' : ''}
+                            </div>
                         </div>
 
-                        {/* ── Cierre del día: conteo físico de efectivo vs sistema ── */}
+                        {/* ── Caja: apertura, gastos de caja chica y cierre ── */}
                         {(() => {
-                            if (!cierre) return null;
+                            if (!cierre) {
+                                return <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>Cargando caja…</div>;
+                            }
                             const t: CierreTotales = cierre.totales || {};
                             const c = cierre.cierre || null;
-                            const cerrado = !!cierre.cerrado;
-                            const esperadoEfectivo = Number(t.total_efectivo || 0);
-                            const dif = c ? Number(c.diferencia || 0) : null;
-                            const cont = (label: string, valor: number | undefined) => (
-                                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', borderBottom: '1px solid var(--surface-border)', fontSize: '0.85rem' }}>
+                            const abierto = cierre.abierto ?? Boolean(c && !c.cerrado_at);
+                            const cerrado = cierre.cerrado ?? Boolean(c?.cerrado_at);
+                            const fondo = Number(c?.fondo_inicial ?? 0);
+                            const gastos = Number(c?.gastos_efectivo ?? 0);
+                            const esperado = Number(
+                                cierre.efectivo_esperado ??
+                                (fondo + Number(t.total_efectivo || 0) - gastos)
+                            );
+                            const contado = c?.efectivo_contado == null ? null : Number(c.efectivo_contado);
+                            const dif = cierre.diferencia ?? (contado == null ? null : contado - esperado);
+                            const fila = (label: string, valor: number | undefined, color?: string) => (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '7px 0', borderBottom: '1px solid var(--surface-border)', fontSize: '0.86rem' }}>
                                     <span style={{ color: 'var(--text-secondary)' }}>{label}</span>
-                                    <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>{formatColones(Number(valor || 0))}</span>
+                                    <span style={{ fontWeight: 700, color: color || 'var(--text-primary)', textAlign: 'right' }}>{formatColones(Number(valor || 0))}</span>
                                 </div>
                             );
+                            const estado = cerrado ? 'Cerrada' : abierto ? 'Abierta' : 'Sin abrir';
+                            const estadoColor = cerrado ? 'var(--primary)' : abierto ? 'var(--accent)' : 'var(--text-muted)';
                             return (
                                 <div style={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '4px', fontWeight: 600, textAlign: 'center' }}>Cierre del Día</div>
-                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '12px' }}>{cierre.fecha}</div>
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
+                                        <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.3px', fontWeight: 600 }}>Caja del Día</div>
+                                        <div style={{ fontSize: '0.72rem', fontWeight: 800, color: estadoColor, background: 'var(--surface)', border: '1px solid var(--surface-border)', padding: '4px 10px', borderRadius: '20px' }}>
+                                            {estado}
+                                        </div>
+                                    </div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginBottom: '12px' }}>{cierre.fecha}</div>
 
-                                    {cont('Órdenes cobradas', t.total_ordenes)}
-                                    {cont('Efectivo', t.total_efectivo)}
-                                    {cont('Tarjeta', t.total_tarjeta)}
-                                    {cont('Sinpe', t.total_sinpe)}
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0 12px', fontSize: '0.95rem' }}>
+                                    {fila('Comandas cobradas', t.total_ordenes)}
+                                    {fila('Comprobantes emitidos', t.total_comprobantes)}
+                                    {fila('Efectivo de ventas', t.total_efectivo)}
+                                    {fila('Tarjeta', t.total_tarjeta)}
+                                    {fila('Sinpe', t.total_sinpe)}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '10px 0 2px', fontSize: '0.98rem' }}>
                                         <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Total ingresos</span>
                                         <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{formatColones(Number(t.total_ingresos || 0))}</span>
                                     </div>
 
-                                    {cerrado ? (
-                                        <div style={{ background: 'var(--primary-surface)', borderRadius: '8px', padding: '12px' }}>
-                                            <div style={{ fontSize: '0.8rem', color: 'var(--primary)', fontWeight: 700, textAlign: 'center' }}>✅ Caja cerrada</div>
-                                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textAlign: 'center', marginTop: '6px' }}>
-                                                Contado: {formatColones(Number(c?.efectivo_contado || 0))} · Esperado: {formatColones(esperadoEfectivo)}
+                                    {!abierto && !cerrado && (
+                                        <div style={{ marginTop: '14px', padding: '14px', background: 'var(--surface)', borderRadius: '10px', border: '1px solid var(--surface-border)' }}>
+                                            <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '4px' }}>Abrí la caja antes de operar</div>
+                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '10px' }}>
+                                                Registrá con cuánto efectivo arrancás. Ese dinero no es una venta: es el fondo para dar vuelto y cubrir gastos pequeños.
                                             </div>
-                                            <div style={{
-                                                fontSize: '1.1rem', fontWeight: 800, textAlign: 'center', marginTop: '4px',
-                                                color: dif === 0 ? 'var(--primary)' : (dif != null && dif < 0 ? 'var(--danger)' : 'var(--warning, #d97706)'),
-                                            }}>
-                                                {dif === 0 ? '¡Cuadra!' : dif != null && dif < 0 ? `Faltan ${formatColones(Math.abs(dif))}` : `Sobran ${formatColones(Number(dif))}`}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <>
                                             <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '6px' }}>
-                                                Efectivo contado en la caja
+                                                Fondo inicial en efectivo
+                                            </label>
+                                            <input
+                                                type="number"
+                                                inputMode="numeric"
+                                                min="0"
+                                                value={fondoInicial}
+                                                onChange={e => setFondoInicial(e.target.value)}
+                                                placeholder="Ej: 20000"
+                                                style={{ width: '100%', boxSizing: 'border-box', padding: '12px', fontSize: '1.15rem', fontWeight: 800, border: '2px solid var(--surface-border)', borderRadius: '8px', background: 'var(--card-bg)', color: 'var(--text-primary)', marginBottom: '10px' }}
+                                            />
+                                            <button
+                                                onClick={abrirCaja}
+                                                disabled={abriendoCaja}
+                                                style={{ width: '100%', minHeight: '44px', padding: '12px', background: abriendoCaja ? 'var(--surface-border)' : 'var(--primary)', color: abriendoCaja ? 'var(--text-muted)' : 'white', border: 'none', borderRadius: '8px', fontSize: '0.9rem', fontWeight: 800, cursor: abriendoCaja ? 'default' : 'pointer' }}
+                                            >
+                                                {abriendoCaja ? 'Abriendo…' : '🔓 Abrir Caja del Día'}
+                                            </button>
+                                        </div>
+                                    )}
+
+                                    {abierto && (
+                                        <div style={{ marginTop: '14px' }}>
+                                            {fila('Fondo inicial', fondo)}
+                                            {fila('Gastos de caja chica', gastos, 'var(--warning, #d97706)')}
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px', padding: '9px 0 12px', fontSize: '0.95rem' }}>
+                                                <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Efectivo esperado</span>
+                                                <span style={{ fontWeight: 800, color: 'var(--primary)' }}>{formatColones(esperado)}</span>
+                                            </div>
+                                            <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '8px' }}>
+                                                Gastos de caja chica: salidas de efectivo para compras pequeñas (hielo, limpieza, etc.). No son ventas.
+                                            </div>
+                                            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '6px' }}>
+                                                Gastos de caja chica (efectivo)
+                                            </label>
+                                            <input
+                                                type="number"
+                                                inputMode="numeric"
+                                                min="0"
+                                                value={gastosEfectivo}
+                                                onChange={e => setGastosEfectivo(e.target.value)}
+                                                placeholder="0"
+                                                style={{ width: '100%', boxSizing: 'border-box', padding: '12px', fontSize: '1.15rem', fontWeight: 800, border: '2px solid var(--surface-border)', borderRadius: '8px', background: 'var(--surface)', color: 'var(--text-primary)', marginBottom: '10px' }}
+                                            />
+                                            <label style={{ display: 'block', fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 600, marginBottom: '6px' }}>
+                                                Efectivo contado al cerrar
                                             </label>
                                             <input
                                                 type="number"
@@ -1072,25 +1183,81 @@ export default function AdminPortal() {
                                             <button
                                                 onClick={cerrarCaja}
                                                 disabled={cerrandoCaja}
-                                                style={{ width: '100%', padding: '14px', background: cerrandoCaja ? 'var(--surface-border)' : 'var(--primary)', color: cerrandoCaja ? 'var(--text-muted)' : 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 800, textTransform: 'uppercase', cursor: cerrandoCaja ? 'default' : 'pointer' }}
+                                                style={{ width: '100%', minHeight: '44px', padding: '14px', background: cerrandoCaja ? 'var(--surface-border)' : 'var(--primary)', color: cerrandoCaja ? 'var(--text-muted)' : 'white', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontWeight: 800, textTransform: 'uppercase', cursor: cerrandoCaja ? 'default' : 'pointer' }}
                                             >
                                                 {cerrandoCaja ? 'Cerrando...' : '🔒 Cerrar Caja del Día'}
                                             </button>
                                             <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', marginTop: '8px' }}>
-                                                El sistema espera {formatColones(esperadoEfectivo)} en efectivo. Al cerrar no se puede volver a cambiar.
+                                                El sistema espera {formatColones(esperado)}. Al cerrar no se puede volver a cambiar.
                                             </div>
-                                        </>
+                                        </div>
+                                    )}
+
+                                    {cerrado && (
+                                        <div style={{ marginTop: '14px', background: 'var(--primary-surface)', borderRadius: '10px', padding: '14px' }}>
+                                            <div style={{ fontSize: '0.85rem', color: 'var(--primary)', fontWeight: 800, textAlign: 'center', marginBottom: '8px' }}>✅ Caja cerrada</div>
+                                            {fila('Fondo inicial', fondo)}
+                                            {fila('Efectivo esperado', esperado)}
+                                            {fila('Efectivo contado', contado ?? undefined)}
+                                            {fila('Gastos de caja chica', gastos, 'var(--warning, #d97706)')}
+                                            <div style={{
+                                                fontSize: '1.12rem', fontWeight: 800, textAlign: 'center', marginTop: '10px',
+                                                color: dif === 0 ? 'var(--primary)' : (dif != null && dif < 0 ? 'var(--danger)' : 'var(--warning, #d97706)'),
+                                            }}>
+                                                {dif == null ? 'Sin conteo registrado' : dif === 0 ? '¡Cuadra!' : dif < 0 ? `Faltan ${formatColones(Math.abs(dif))}` : `Sobran ${formatColones(Number(dif))}`}
+                                            </div>
+                                            {c?.observaciones && <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '8px', textAlign: 'center' }}>{c.observaciones}</div>}
+                                        </div>
                                     )}
                                 </div>
                             );
                         })()}
 
+                        {cierre?.historial && cierre.historial.length > 0 && (
+                            <div style={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+                                <div style={{ fontSize: '0.8rem', fontWeight: 700, marginBottom: '10px' }}>Historial reciente</div>
+                                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                                    <table style={{ width: '100%', minWidth: '620px', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                                        <thead>
+                                            <tr style={{ color: 'var(--text-secondary)', borderBottom: '1px solid var(--surface-border)' }}>
+                                                <th style={{ textAlign: 'left', padding: '8px 6px' }}>Fecha</th>
+                                                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Comandas</th>
+                                                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Ingresos</th>
+                                                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Fondo</th>
+                                                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Gastos</th>
+                                                <th style={{ textAlign: 'right', padding: '8px 6px' }}>Diferencia</th>
+                                                <th style={{ textAlign: 'center', padding: '8px 6px' }}>Estado</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {cierre.historial.map(h => {
+                                                const d = h.diferencia == null ? null : Number(h.diferencia);
+                                                return (
+                                                    <tr key={h.id} style={{ borderBottom: '1px solid var(--surface-border)' }}>
+                                                        <td style={{ padding: '8px 6px', fontWeight: 600 }}>{h.fecha}</td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>{h.total_ordenes} <span style={{ color: 'var(--text-muted)' }}>/ {h.total_comprobantes} comp.</span></td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>{formatColones(Number(h.total_ingresos || 0))}</td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>{formatColones(Number(h.fondo_inicial || 0))}</td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'right' }}>{formatColones(Number(h.gastos_efectivo || 0))}</td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'right', fontWeight: 700, color: d == null ? 'var(--text-muted)' : d === 0 ? 'var(--primary)' : d < 0 ? 'var(--danger)' : 'var(--warning, #d97706)' }}>
+                                                            {d == null ? '—' : `${d > 0 ? '+' : ''}${formatColones(d)}`}
+                                                        </td>
+                                                        <td style={{ padding: '8px 6px', textAlign: 'center' }}>{h.cerrado_at ? 'Cerrada' : 'Abierta'}</td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        )}
+
                         <div style={{ backgroundColor: 'var(--card-bg)', border: '1px solid var(--surface-border)', borderRadius: '12px', padding: '20px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.3px', marginBottom: '12px', fontWeight: 600, textAlign: 'center' }}>Reparto entre Meseros</div>
                                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', marginBottom: '12px' }}>
-                                    <button onClick={() => setMeseroCount(Math.max(1, meseroCount - 1))} style={{ width: '30px', height: '30px', borderRadius: '50%', border: '1px solid var(--surface-border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+                                    <button onClick={() => setMeseroCount(Math.max(1, meseroCount - 1))} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '1px solid var(--surface-border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>−</button>
                                     <span style={{ fontSize: '1.25rem', fontWeight: 700, minWidth: '24px', textAlign: 'center' }}>{meseroCount}</span>
-                                    <button onClick={() => setMeseroCount(meseroCount + 1)} style={{ width: '30px', height: '30px', borderRadius: '50%', border: '1px solid var(--surface-border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+                                    <button onClick={() => setMeseroCount(meseroCount + 1)} style={{ width: '44px', height: '44px', borderRadius: '50%', border: '1px solid var(--surface-border)', backgroundColor: 'var(--surface)', cursor: 'pointer', fontSize: '1.2rem', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>+</button>
                                 </div>
                                 <div style={{ textAlign: 'center', background: 'var(--primary-surface)', padding: '8px', borderRadius: '8px', color: '#1a73e8' }}>
                                     <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '4px' }}>del total diario</div>

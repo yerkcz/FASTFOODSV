@@ -72,9 +72,11 @@ export type ComprobanteRow = {
  * reimprimir el comprobante aunque la orden se borre.
  */
 export type ComprobanteSnapshot = {
-  cantidad?: number;
+  producto_id?: string;
   nombre?: string;
   producto_nombre?: string;
+  categoria?: string;
+  cantidad?: number;
   subtotal?: number;
   precio_unitario?: number;
   [clave: string]: unknown;
@@ -132,16 +134,21 @@ export type CierreCajaRow = {
   fecha: string;
   cajero_id: string | null;
   total_ordenes: number;
+  total_comprobantes: number;
   total_ingresos: number;
   total_efectivo: number;
   total_tarjeta: number;
   total_sinpe: number;
   total_descuentos: number;
-  observaciones: string | null;
-  created_at: string;
+  fondo_inicial: number;
+  gastos_efectivo: number;
+  efectivo_esperado: number;
   efectivo_contado: number | null;
   diferencia: number | null;
+  observaciones: string | null;
+  abierta_at: string | null;
   cerrado_at: string | null;
+  created_at: string;
 }
 
 export type CuentaDivisionRow = {

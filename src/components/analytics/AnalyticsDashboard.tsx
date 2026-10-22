@@ -38,15 +38,36 @@ type DashboardData = {
   kpis: {
     ingresos_totales: number;
     total_ordenes: number;
+    total_comprobantes?: number;
     ticket_promedio: number;
+    ticket_mediano?: number;
+    ticket_p90?: number;
+    desviacion_ticket?: number;
     ordenes_por_dia: number;
     coef_variacion: number;
+    coef_variacion_ticket?: number;
+    items_por_orden?: number;
+    total_unidades?: number;
+    dias_con_ventas?: number;
   };
   comparativa: {
     pct_cambio_ingresos: number;
     pct_cambio_ordenes: number;
     pct_cambio_ticket: number;
+    hay_base?: boolean;
   };
+  periodo?: { label: string; dias: number; desde: string; hasta: string };
+  dataQuality?: DataQuality;
+};
+
+type DataQuality = {
+  comprobantes: number;
+  ordenes: number;
+  comprobantes_sin_pago: number;
+  snapshots_vacios: number;
+  ordenes_con_multiples_comprobantes: number;
+  dias_con_ventas: number;
+  cobertura_pago_pct: number;
 };
 
 type ProductoStat = {
@@ -56,33 +77,56 @@ type ProductoStat = {
   ingresos: number;
   rotacion_diaria: number;
   pct_individual: number;
+  pct_unidades?: number;
   pct_acumulado?: number;
   es_vital?: boolean;
+  abc?: "A" | "B" | "C";
+  precio_promedio?: number;
+  tendencia?: "subiendo" | "bajando" | "estable";
+  cambio_pct?: number;
 };
 
 type ProductsData = {
   productos: ProductoStat[];
-  categorias: { nombre: string; ingresos: number }[];
+  categorias: { nombre: string; ingresos: number; unidades?: number; pct_participacion?: number }[];
   total_ingresos: number;
+  total_unidades?: number;
+  dias?: number;
+  concentracion?: {
+    top10_pct: number;
+    top3_categorias_pct: number;
+    productos_distintos: number;
+  };
 };
 
-type GoldenHour = { hora: number; ingresos: number };
-type WeekdayStat = { dia_num: number; dia: string; ingresos: number };
-type PaymentStat = { metodo: string; ingresos: number };
-type TimeSeriesPoint = { periodo: string; ingresos: number };
-type TurnoverStat = { mesa: number | null; mins_promedio: number };
-type BasketPair = { producto_a: string; producto_b: string; frecuencia: number };
-type CategoryStat = { categoria: string; ingresos: number; pct_participacion?: number };
+type GoldenHour = { hora: number; ingresos: number; ordenes?: number };
+type WeekdayStat = { dia_num: number; dia: string; ingresos: number; ordenes?: number };
+type PaymentStat = { metodo: string; ingresos: number; pagos?: number; pct?: number };
+type TimeSeriesPoint = { periodo: string; ingresos: number; ordenes?: number };
+type TurnoverStat = { mesa: number | null; mins_promedio: number; mediana?: number; ordenes?: number };
+type BasketPair = {
+  producto_a: string;
+  producto_b: string;
+  frecuencia: number;
+  soporte?: number;
+  confianza?: number;
+  lift?: number;
+};
+type CategoryStat = { categoria: string; ingresos: number; unidades?: number; pct_participacion?: number };
 type ProductTrend = {
   producto?: string;
   categoria?: string;
   unidades?: number;
+  unidades_vendidas?: number;
   ingresos: number;
   tendencia: string;
+  cambio_pct?: number;
+  abc?: "A" | "B" | "C";
 };
 type RetentionSegment = { segmento: string; clientes: number; ordenes: number; ingresos: number };
 type TicketRange = { rango: string; ordenes: number; pct_ordenes: number };
 type SpeedMetric = { descripcion: string; metric: string; valor: number };
+type ShiftStat = { turno: string; ordenes: number; ingresos: number; ticket_promedio: number };
 
 type TrendsData = {
   timeSeries?: TimeSeriesPoint[];
@@ -95,8 +139,11 @@ type TrendsData = {
   products?: ProductTrend[];
   retention?: RetentionSegment[];
   tickets?: TicketRange[];
-  shifts?: SpeedMetric[];
+  shifts?: ShiftStat[];
   speed?: SpeedMetric[];
+  dataQuality?: DataQuality;
+  trend?: { direccion: string; pendiente: number; r2: number; dias: number };
+  heatmap?: { dias: string[]; horas: number[]; matrix: number[][] };
 };
 
 /** Argumentos que exige `generateReportPDF` (su firma vive en otro módulo). */
@@ -119,7 +166,10 @@ function TooltipCard({ title, children, icon }: { title: string; children: React
       background: 'linear-gradient(135deg, var(--surface) 0%, var(--primary-surface) 100%)', 
       borderRadius: '8px', 
       padding: '12px',
-      border: '1px solid var(--surface-border)'
+      border: '1px solid var(--surface-border)',
+      minWidth: 0,
+      maxWidth: '100%',
+      flex: '1 1 220px'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
         <span style={{ fontSize: '1.1rem' }}>{icon}</span>
@@ -227,7 +277,7 @@ export default function AnalyticsDashboard() {
     // El estado es `T | null`, pero este handler solo corre tras el guard de
     // arriba; el cast es solo de tipos (se borra en compilación).
     await generateReportPDF(
-      dashboardData as unknown as ReportArgs[0],
+      { ...dashboardData, periodo: { label: periodoLabel } } as unknown as ReportArgs[0],
       productsData as unknown as ReportArgs[1],
       trendsData,
       refs
@@ -261,27 +311,61 @@ export default function AnalyticsDashboard() {
     </div>
   );
   
-  if (!dashboardData || !trendsData) return null;
+  if (!dashboardData || !productsData || !trendsData) return null;
 
   const { kpis, comparativa } = dashboardData;
-  const totalIngresos = productsData?.total_ingresos || 0;
-  
-  // Calcular métricas adicionales
-  const peakHour = trendsData.goldenHours?.reduce<GoldenHour | null>((max, h) => h.ingresos > (max?.ingresos || 0) ? h : max, null);
-  const bestDay = trendsData.weekdays?.reduce<WeekdayStat | null>((max, d) => d.ingresos > (max?.ingresos || 0) ? d : max, null);
+  const totalIngresos = productsData.total_ingresos || 0;
+  const totalComprobantes = kpis.total_comprobantes ?? trendsData.dataQuality?.comprobantes ?? 0;
+  const ticketMediano = kpis.ticket_mediano ?? kpis.ticket_promedio;
+  const ticketP90 = kpis.ticket_p90 ?? kpis.ticket_promedio;
+  const itemsPorOrden = kpis.items_por_orden ?? 0;
+  const dataQuality = trendsData.dataQuality || dashboardData.dataQuality;
+
+  // Calcular métricas adicionales. Solo consideramos días/horas con ventas:
+  // un día cerrado no debe "ganar" el ranking por tener todo en cero.
+  const activeHours = (trendsData.goldenHours || []).filter((h) => h.ingresos > 0);
+  const peakHour = activeHours.length
+    ? activeHours.reduce((max, h) => (h.ingresos > max.ingresos ? h : max), activeHours[0])
+    : null;
+  const activeDays = (trendsData.weekdays || []).filter((d) => d.ingresos > 0);
+  const bestDay = activeDays.length
+    ? activeDays.reduce((max, d) => (d.ingresos > max.ingresos ? d : max), activeDays[0])
+    : null;
   const paymentTotals = trendsData.payments?.reduce((acc: number, p) => acc + p.ingresos, 0) || 1;
 
-  // -- NEW: Inteligencia de Negocio & Variables --
+  // -- Inteligencia de negocio --
   const validTurnovers = trendsData.tableTurnover?.filter((t) => t.mesa && t.mins_promedio > 0) || [];
-  const turnoverPromedio = validTurnovers.length > 0 ? (validTurnovers.reduce((acc: number, t) => acc + t.mins_promedio, 0) / validTurnovers.length) : 0;
+  const turnoverOrders = validTurnovers.reduce((acc, t) => acc + (t.ordenes || 1), 0);
+  const turnoverPromedio = turnoverOrders > 0
+    ? validTurnovers.reduce((acc, t) => acc + t.mins_promedio * (t.ordenes || 1), 0) / turnoverOrders
+    : 0;
   const topCrossSell = trendsData.basket?.[0];
 
-  // Nuevas métricas de ciencia de datos
-  const categoryData = trendsData.categories || [];
-  const productTrends = trendsData.products || [];
+  // Secciones de análisis
+  const categoryData: CategoryStat[] = trendsData.categories?.length
+    ? trendsData.categories
+    : (productsData.categorias || []).map((c) => ({
+        categoria: c.nombre,
+        ingresos: c.ingresos,
+        unidades: c.unidades,
+        pct_participacion: c.pct_participacion,
+      }));
+  const productTrends: ProductTrend[] = trendsData.products?.length
+    ? trendsData.products
+    : (productsData.productos || []).map((p) => ({
+        producto: p.producto,
+        categoria: p.categoria,
+        unidades: p.unidades_vendidas,
+        ingresos: p.ingresos,
+        tendencia: p.tendencia || "estable",
+        cambio_pct: p.cambio_pct,
+        abc: p.abc,
+      }));
   const retentionData = trendsData.retention || [];
   const ticketDist = trendsData.tickets || [];
   const speedMetrics = trendsData.speed || [];
+  const shiftData = trendsData.shifts || [];
+  const maxCategoryIngresos = Math.max(...categoryData.map((c) => c.ingresos), 1);
 
   // ===================== GRÁFICOS =====================
   
@@ -310,12 +394,9 @@ export default function AnalyticsDashboard() {
     datasets: [{
       label: 'Ingresos',
       data: trendsData.goldenHours?.map((h) => h.ingresos) || [],
-      backgroundColor: trendsData.goldenHours?.map((_h, i) => {
-        if (i === 0) return COLORS.success;
-        if (i === 1) return COLORS.warning;
-        if (i === 2) return COLORS.orange;
-        return COLORS.primary;
-      }) || [],
+      backgroundColor: trendsData.goldenHours?.map((h) =>
+        h.hora === peakHour?.hora ? COLORS.success : COLORS.primary
+      ) || [],
       borderRadius: 6
     }]
   };
@@ -337,7 +418,7 @@ export default function AnalyticsDashboard() {
     labels: trendsData.payments?.map((p) => p.metodo === 'No registrado' ? 'Sin Registrar' : p.metodo) || [],
     datasets: [{
       data: trendsData.payments?.map((p) => p.ingresos) || [],
-      backgroundColor: [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray],
+      backgroundColor: COLORS.palette,
       borderWidth: 0
     }]
   };
@@ -389,7 +470,7 @@ export default function AnalyticsDashboard() {
         type: 'bar' as const,
         label: 'Ingresos',
         data: top10.map((p) => p.ingresos),
-        backgroundColor: top10.map((p) => p.es_vital ? COLORS.success : 'var(--surface-border)'),
+        backgroundColor: top10.map((p) => p.es_vital ? COLORS.success : COLORS.gray),
         yAxisID: 'y'
       }
     ]
@@ -547,11 +628,66 @@ export default function AnalyticsDashboard() {
             promedio general de min.
           </div>
         </div>
+
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🧾 Comprobantes</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{totalComprobantes}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            pagos emitidos. Una comanda con split bill puede tener varios.
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>📊 Ticket Mediano</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{formatColones(ticketMediano)}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            La mitad de las comandas costó menos que esto. Es más estable si hay cuentas muy altas.
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🎯 Ticket P90</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>{formatColones(ticketP90)}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            10% de las comandas supera este monto. Sirve para detectar cuentas grandes.
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>🍽️ Ítems por Comanda</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{itemsPorOrden}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            Promedio de unidades por orden. Más ítems suele significar más venta por mesa.
+          </div>
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.5px' }}>📅 Días con Ventas</div>
+          <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>{kpis.dias_con_ventas ?? dataQuality?.dias_con_ventas ?? 0}</div>
+          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+            Días con al menos una comanda en el período seleccionado.
+          </div>
+        </div>
       </div>
+
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '8px 16px', margin: '-8px 0 24px', padding: '10px 14px', background: 'var(--surface)', border: '1px solid var(--surface-border)', borderRadius: '10px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+        <span><strong>Comanda</strong> = una orden atendida.</span>
+        <span><strong>Comprobante</strong> = un pago emitido.</span>
+        <span><strong>Split bill</strong> puede generar varios comprobantes para una sola comanda.</span>
+      </div>
+
+      {dataQuality && (dataQuality.comprobantes_sin_pago > 0 || dataQuality.snapshots_vacios > 0) && (
+        <div style={{ marginBottom: '20px', padding: '12px 14px', borderRadius: '10px', background: 'var(--warning-soft, #3a2a08)', border: '1px solid var(--warning, #d97706)', color: 'var(--text-primary)', fontSize: '0.82rem', lineHeight: 1.5 }}>
+          <strong>Revisión de datos:</strong>{' '}
+          {dataQuality.comprobantes_sin_pago > 0 && `${dataQuality.comprobantes_sin_pago} comprobante(s) no tienen pago asociado. `}
+          {dataQuality.snapshots_vacios > 0 && `${dataQuality.snapshots_vacios} comprobante(s) no tienen detalle de productos. `}
+          Esto puede hacer que los totales de venta y producto no coincidan. Revisá esos cierres antes de tomar decisiones.
+        </div>
+      )}
 
       {/* ===================== SECCIÓN: TENDENCIA ===================== */}
       <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📈 Evolución de tus Ingresos</h3>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Muestra cómo han cambiado tus ventas día a día</p>
@@ -576,7 +712,7 @@ export default function AnalyticsDashboard() {
         
         {/* HORAS PICO */}
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>⏰ Horas de Mayor Movimiento</h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Aprovechá estos horarios</p>
@@ -603,7 +739,7 @@ export default function AnalyticsDashboard() {
 
         {/* DÍAS DE LA SEMANA */}
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>📅 Desempeño por Día</h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Qué días van mejor</p>
@@ -649,8 +785,8 @@ export default function AnalyticsDashboard() {
                 background: 'var(--surface)', padding: '6px 12px', borderRadius: '20px',
                 fontSize: '0.75rem', fontWeight: 600
               }}>
-                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: [COLORS.success, COLORS.primary, COLORS.warning, COLORS.gray][i] }}></div>
-                {p.metodo === 'No registrado' ? 'Sin registrar' : p.metodo}: {Math.round(p.ingresos / paymentTotals * 100)}%
+                <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: COLORS.palette[i % COLORS.palette.length] }}></div>
+                {p.metodo === 'No registrado' ? 'Sin registrar' : p.metodo}: {p.pct ?? Math.round(p.ingresos / paymentTotals * 100)}%
               </div>
             ))}
           </div>
@@ -676,13 +812,13 @@ export default function AnalyticsDashboard() {
 
       {/* ===================== TOP PRODUCTOS ===================== */}
       <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🏆 Tus Productos Estrella</h3>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los 10 productos que más generan ingresos</p>
           </div>
           <div style={{ background: 'var(--primary-surface)', padding: '8px 16px', borderRadius: '8px' }}>
-            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>10 productos = {Math.round(top10.reduce((s: number, p) => s + p.pct_individual, 0))}% de ventas</span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600 }}>{top10.length} productos = {Math.round(top10.reduce((s: number, p) => s + p.pct_individual, 0))}% de ventas</span>
           </div>
         </div>
         
@@ -697,8 +833,8 @@ export default function AnalyticsDashboard() {
             }} />
           </div>
           
-          <div>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <div style={{ minWidth: 0, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+            <table style={{ width: '100%', minWidth: '480px', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--surface)' }}>
                   <th style={{ textAlign: 'left', padding: '10px 8px', color: 'var(--text-secondary)', fontWeight: 600 }}>#</th>
@@ -727,7 +863,7 @@ export default function AnalyticsDashboard() {
 
       {/* ===================== PARETO ===================== */}
       <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📊 Análisis 80/20 (Pareto)</h3>
             <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
@@ -759,7 +895,7 @@ export default function AnalyticsDashboard() {
         
         {/* CROSS-SELLING (MARKET BASKET) */}
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🛒 Productos Comprados Juntos</h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los &quot;Combos Naturales&quot; de tus clientes</p>
@@ -792,7 +928,7 @@ export default function AnalyticsDashboard() {
 
         {/* TIEMPOS DE MESA (TABLE TURNOVER) */}
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
             <div>
               <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>⏳ Rapidez por Mesa</h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Minutos desde la creación hasta el Check-out</p>
@@ -838,15 +974,15 @@ export default function AnalyticsDashboard() {
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {categoryData.slice(0, 8).map((cat, i) => {
-                const maxIng = Math.max(...categoryData.map((x) => x.ingresos));
-                const pct = Math.round((cat.ingresos / maxIng) * 100);
+                const pct = Math.min(100, Math.round((cat.ingresos / maxCategoryIngresos) * 100));
+                const share = cat.pct_participacion ?? (totalIngresos > 0 ? (cat.ingresos / totalIngresos) * 100 : 0);
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <div style={{ width: '120px', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>{cat.categoria}</div>
-                    <div style={{ flex: 1, background: 'var(--surface)', height: '12px', borderRadius: '6px', overflow: 'hidden' }}>
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ width: '96px', minWidth: 0, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cat.categoria}>{cat.categoria}</div>
+                    <div style={{ flex: 1, minWidth: '30px', background: 'var(--surface)', height: '12px', borderRadius: '6px', overflow: 'hidden' }}>
                       <div style={{ height: '100%', width: `${pct}%`, background: COLORS.palette[i % COLORS.palette.length], borderRadius: '6px' }}></div>
                     </div>
-                    <div style={{ width: '80px', textAlign: 'right', fontSize: '0.85rem', fontWeight: 700 }}>{cat.pct_participacion?.toFixed(1)}%</div>
+                    <div style={{ width: '54px', textAlign: 'right', fontSize: '0.82rem', fontWeight: 700 }}>{share.toFixed(1)}%</div>
                   </div>
                 );
               })}
@@ -878,11 +1014,13 @@ export default function AnalyticsDashboard() {
         {/* ===================== RETENCIÓN DE CLIENTES ===================== */}
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <div style={{ marginBottom: '16px' }}>
-            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🔄 Fidelización de Clientes</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Segmentación por frecuencia de visita</p>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🔄 Clientes Identificados <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)', fontWeight: 600 }}>(beta)</span></h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Frecuencia de compra de clientes con nombre o teléfono</p>
           </div>
           {retentionData.length === 0 ? (
-            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>Sin datos</div>
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Aún no hay clientes identificados. Para activarlo, anotá el nombre o teléfono al crear la comanda.
+            </div>
           ) : (
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'center' }}>
               {retentionData.map((r, i) => {
@@ -922,13 +1060,18 @@ export default function AnalyticsDashboard() {
                 return (
                   <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
                     <span style={{ fontSize: '1.2rem' }}>{tendenciaIcon}</span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>{p.producto?.substring(0,30)}</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{p.categoria} · {p.unidades} unidades</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.producto}>{p.producto}</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {p.categoria || 'Sin categoría'} · {p.unidades ?? p.unidades_vendidas ?? 0} unidades
+                        {p.abc ? ` · ABC ${p.abc}` : ''}
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--primary)' }}>{formatColones(p.ingresos)}</div>
-                      <div style={{ fontSize: '0.7rem', color: tendenciaColor, fontWeight: 600 }}>{p.tendencia.toUpperCase()}</div>
+                      <div style={{ fontSize: '0.7rem', color: tendenciaColor, fontWeight: 600 }}>
+                        {p.tendencia.toUpperCase()}{typeof p.cambio_pct === 'number' && p.cambio_pct !== 0 ? ` ${p.cambio_pct > 0 ? '+' : ''}${p.cambio_pct}%` : ''}
+                      </div>
                     </div>
                   </div>
                 );
@@ -936,6 +1079,83 @@ export default function AnalyticsDashboard() {
             </div>
           )}
         </div>
+
+        {trendsData.heatmap && trendsData.heatmap.matrix.some((row) => row.some((v) => v > 0)) && (
+          <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+            <div style={{ marginBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🗓️ Mapa de Calor: Día y Hora</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cuándo se concentran las ventas (cada cuadro es una hora del día)</p>
+            </div>
+            {(() => {
+              const hm = trendsData.heatmap!;
+              const maxValor = Math.max(...hm.matrix.flat(), 1);
+              return (
+                <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '40px repeat(24, 20px)', gap: '2px', minWidth: '540px' }}>
+                    <div />
+                    {hm.horas.map((h) => (
+                      <div key={`h${h}`} style={{ fontSize: '0.55rem', color: 'var(--text-muted)', textAlign: 'center' }}>
+                        {h % 3 === 0 ? h : ''}
+                      </div>
+                    ))}
+                    {hm.matrix.map((row, diaIdx) => (
+                      <React.Fragment key={`row${diaIdx}`}>
+                        <div key={`d${diaIdx}`} style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', fontWeight: 700, display: 'flex', alignItems: 'center' }}>
+                          {hm.dias[diaIdx]}
+                        </div>
+                        {row.map((valor, horaIdx) => {
+                          const intensidad = valor / maxValor;
+                          return (
+                            <div
+                              key={`c${diaIdx}-${horaIdx}`}
+                              title={`${hm.dias[diaIdx]} ${hm.horas[horaIdx]}:00 — ${formatColones(valor)}`}
+                              style={{
+                                height: '20px',
+                                borderRadius: '3px',
+                                background: valor > 0
+                                  ? `rgba(4, 120, 87, ${0.15 + intensidad * 0.85})`
+                                  : 'var(--surface)',
+                                border: '1px solid var(--surface-border)',
+                              }}
+                            />
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '10px' }}>
+              Verde intenso = más ventas en esa franja. Usalo para programar al personal extra.
+            </div>
+          </div>
+        )}
+
+        {shiftData.length > 0 && (
+          <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+            <div style={{ marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🕐 Ventas por Turno</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Dónde se concentra la operación durante el día</p>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {shiftData.map((s, i) => {
+                const maxShift = Math.max(...shiftData.map((x) => x.ingresos), 1);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <div style={{ width: '78px', fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{s.turno}</div>
+                    <div style={{ flex: 1, background: 'var(--surface)', height: '10px', borderRadius: '5px', overflow: 'hidden' }}>
+                      <div style={{ height: '100%', width: `${Math.max(4, Math.round((s.ingresos / maxShift) * 100))}%`, background: COLORS.palette[i % COLORS.palette.length], borderRadius: '5px' }}></div>
+                    </div>
+                    <div style={{ width: '104px', textAlign: 'right', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      <strong style={{ color: 'var(--text-primary)' }}>{formatColones(s.ingresos)}</strong><br />{s.ordenes} órdenes
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* ===================== MÉTRICAS DE VELOCIDAD ===================== */}
         {speedMetrics.length > 0 && (
@@ -962,19 +1182,21 @@ export default function AnalyticsDashboard() {
       </div>
 
       {/* ===================== BOTONES EXPORT ===================== */}
-      <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', marginTop: '20px', paddingBottom: '40px' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', justifyContent: 'center', marginTop: '20px', paddingBottom: '40px' }}>
         <button onClick={handleExportCSV} style={{ 
-          padding: '14px 28px', borderRadius: '12px', border: '2px solid var(--primary)', 
+          padding: '14px 20px', borderRadius: '12px', border: '2px solid var(--primary)', 
           background: 'var(--card-bg)', cursor: 'pointer', fontWeight: 700, color: 'var(--primary)',
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px'
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px',
+          flex: '1 1 150px', maxWidth: '280px'
         }}>
           📥 Exportar Excel
         </button>
         <button onClick={handleExportPDF} style={{ 
-          padding: '14px 28px', borderRadius: '12px', border: 'none', 
+          padding: '14px 20px', borderRadius: '12px', border: 'none', 
           background: 'var(--primary-gradient)', cursor: 'pointer', fontWeight: 700, color: 'white',
-          display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px',
-          boxShadow: '0 4px 12px rgba(4,120,87,0.3)'
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', fontSize: '0.9rem', minHeight: '44px',
+          boxShadow: '0 4px 12px rgba(4,120,87,0.3)',
+          flex: '1 1 150px', maxWidth: '280px'
         }}>
           📄 Generar Reporte PDF
         </button>
