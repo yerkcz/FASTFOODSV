@@ -5,7 +5,7 @@ import {
   LineElement, PointElement, ArcElement, Title, Tooltip, Legend, Filler, LineController, BarController, DoughnutController
 } from 'chart.js';
 import type { ChartData } from 'chart.js';
-import { Line, Bar, Doughnut, Chart } from 'react-chartjs-2';
+import { Bar, Doughnut, Chart } from 'react-chartjs-2';
 import { generateReportPDF } from '@/lib/generateReport';
 import { formatColones } from '@/lib/format';
 
@@ -14,24 +14,37 @@ ChartJS.register(
   PointElement, ArcElement, Title, Tooltip, Legend, Filler, LineController, BarController, DoughnutController
 );
 
+// Paleta de marca: verde SANVÍ + naranja de acento. Antes era el azul de
+// Google, que no tenía relación con el logo ni con el resto de la app.
 const COLORS = {
-  primary: '#1a73e8',
-  success: '#34a853',
-  warning: '#fbbc04',
-  danger: '#ea4335',
-  purple: '#9334e6',
-  teal: '#00bcd4',
-  orange: '#ff6d00',
-  pink: '#e91e63',
-  gray: '#607d8b',
+  primary: '#10b981',
+  success: '#047857',
+  warning: '#f59e0b',
+  danger: '#ef4444',
+  purple: '#8b5cf6',
+  teal: '#14b8a6',
+  orange: '#d97706',
+  pink: '#ec4899',
+  gray: '#64748b',
+  // Orden alternado a propósito: dos verdes o dos naranjas seguidos se
+  // confunden en una dona. Así cada porción vecina tiene un tono distinto.
   palette: [
-    '#1a73e8', '#34a853', '#fbbc04', '#ea4335',
-    '#9334e6', '#00bcd4', '#ff6d00', '#e91e63',
-    '#607d8b', '#795548'
+    '#047857', '#f59e0b', '#0e7490', '#84cc16',
+    '#8b5cf6', '#d97706', '#14b8a6', '#ec4899',
+    '#0891b2', '#a3e635', '#f97316', '#7c3aed',
+    '#db2777', '#64748b', '#065f46', '#fbbf24'
   ]
 };
 
 const DAYS_ES = ['Domingo', 'Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+
+const STATS_NAV = [
+  { id: 'stats-resumen', label: '✨ Resumen' },
+  { id: 'stats-ventas', label: '💰 Ventas' },
+  { id: 'stats-productos', label: '🍽️ Productos' },
+  { id: 'stats-clientes', label: '👥 Clientes' },
+  { id: 'stats-operacion', label: '⚙️ Operación' },
+];
 
 // ── Tipos de las respuestas de /api/analytics/* ──────────────────────────
 type DashboardData = {
@@ -58,6 +71,58 @@ type DashboardData = {
   };
   periodo?: { label: string; dias: number; desde: string; hasta: string };
   dataQuality?: DataQuality;
+  highlights?: Highlights;
+};
+
+type HighlightDay = { periodo: string; ingresos: number; ordenes: number };
+
+type Highlights = {
+  resumen: string[];
+  records: {
+    mejor_dia: HighlightDay | null;
+    peor_dia: HighlightDay | null;
+    cuenta_maxima: { monto: number; cliente: string | null; mesa: number | null; fecha: string } | null;
+    producto_estrella: { nombre: string; unidades: number; ingresos: number } | null;
+    categoria_estrella: { nombre: string; ingresos: number; pct: number } | null;
+    cliente_fiel: { nombre: string; visitas: number; ingresos: number; ticket_promedio: number } | null;
+    racha: { dias: number; desde: string; hasta: string } | null;
+    hora_top: { hora: number; ingresos: number; ordenes: number } | null;
+  };
+  proyeccion: {
+    dias_transcurridos: number;
+    dias_mes: number;
+    promedio_diario: number;
+    proyeccion: number;
+    restante: number;
+  } | null;
+  meta: { diaria: number; promedio: number; avance_pct: number } | null;
+  canales: Record<
+    'mesa' | 'llevar' | 'sin_clasificar',
+    { ordenes: number; ingresos: number; ticket_promedio: number; pct: number }
+  >;
+  descuentos: {
+    monto: number;
+    bruto: number;
+    pct: number;
+    comprobantes: number;
+    con_descuento: number;
+  };
+  top_clientes: { nombre: string; visitas: number; ingresos: number; ticket_promedio: number }[];
+  categorias_crecimiento: {
+    nombre: string;
+    ingresos: number;
+    pct_participacion: number;
+    crecimiento_pct: number | null;
+  }[];
+  ticket_por_dia: { dia: string; dia_num: number; ticket: number; ordenes: number; ingresos: number }[];
+  productos_sin_venta: {
+    total: number;
+    productos: { nombre: string; categoria: string; precio: number }[];
+  };
+  ingreso_hora_activa: { promedio: number; horas: number };
+  ventas_por_mesa: { mesa: number; ingresos: number; ordenes: number; pct: number }[];
+  historial_mensual: { mes: string; label: string; ingresos: number; ordenes: number }[];
+  clientes: { identificados: number; recurrentes: number; pct_recurrentes: number };
 };
 
 type DataQuality = {
@@ -160,6 +225,87 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
+const MESES_CORTOS = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+const DIAS_CORTOS = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+
+/** "2026-10-04" → "sáb 4 oct". Se arma en UTC para no correr el día. */
+function formatFechaKey(key?: string | null): string {
+  if (!key) return '—';
+  const [y, m, d] = key.slice(0, 10).split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d, 12));
+  return `${DIAS_CORTOS[date.getUTCDay()] || ''} ${d} ${MESES_CORTOS[m - 1] || ''}`.trim();
+}
+
+/** Porcentajes con coma decimal, como se escribe en Costa Rica. */
+function formatPct(value: number, decimals = 1): string {
+  return value.toFixed(decimals).replace('.', ',');
+}
+
+/** Para ejes: ₡1.250.000 → ₡1,25M. Los tooltips muestran el monto completo. */
+function formatCompactColones(value: number): string {
+  const n = Number(value) || 0;
+  if (Math.abs(n) >= 1_000_000) return `₡${(n / 1_000_000).toFixed(1).replace('.', ',')}M`;
+  if (Math.abs(n) >= 1_000) return `₡${Math.round(n / 1_000)}k`;
+  return `₡${Math.round(n)}`;
+}
+
+/** Reduce una serie larga a ~24 puntos para que un sparkline siga siendo legible. */
+function downsample(values: number[], max = 24): number[] {
+  if (values.length <= max) return values;
+  const step = values.length / max;
+  return Array.from({ length: max }, (_, i) => values[Math.floor(i * step)]);
+}
+
+function Sparkline({ values, color }: { values: number[]; color: string }) {
+  if (values.length < 2) return null;
+  const w = 92;
+  const h = 28;
+  const max = Math.max(...values);
+  const min = Math.min(...values);
+  const span = max - min || 1;
+  const points = values
+    .map((v, i) => `${(i / (values.length - 1)) * w},${h - 3 - ((v - min) / span) * (h - 6)}`)
+    .join(' ');
+  return (
+    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} aria-hidden="true" style={{ display: 'block', flexShrink: 0 }}>
+      <polyline points={points} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Explicación en dos capas: qué se está viendo y qué conviene hacer. */
+function Note({ what, todo }: { what: React.ReactNode; todo?: React.ReactNode }) {
+  return (
+    <div style={{ marginTop: '14px', display: 'grid', gap: '6px' }}>
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--surface-border)', borderRadius: '8px', padding: '8px 10px', fontSize: '0.78rem', lineHeight: 1.5 }}>
+        <strong style={{ color: 'var(--text-primary)' }}>¿Qué significa?</strong>{' '}
+        <span style={{ color: 'var(--text-secondary)' }}>{what}</span>
+      </div>
+      {todo && (
+        <div style={{ background: 'var(--primary-surface)', borderRadius: '8px', padding: '8px 10px', fontSize: '0.78rem', lineHeight: 1.5 }}>
+          <strong style={{ color: 'var(--primary)' }}>¿Qué hacer?</strong>{' '}
+          <span style={{ color: 'var(--text-secondary)' }}>{todo}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type MedalData = { icon: string; label: string; value: string; sub: string; color: string };
+
+function Medal({ data }: { data: MedalData }) {
+  return (
+    <div style={{ background: 'var(--card-bg)', borderRadius: '12px', padding: '14px', border: '1px solid var(--surface-border)', borderTop: `3px solid ${data.color}`, minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+        <span style={{ fontSize: '1.05rem' }}>{data.icon}</span>
+        <span style={{ fontSize: '0.66rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.4px' }}>{data.label}</span>
+      </div>
+      <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={data.value}>{data.value}</div>
+      <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '3px', lineHeight: 1.4 }}>{data.sub}</div>
+    </div>
+  );
+}
+
 function TooltipCard({ title, children, icon }: { title: string; children: React.ReactNode; icon: string }) {
   return (
     <div style={{ 
@@ -191,13 +337,15 @@ export default function AnalyticsDashboard() {
   // graficas se pintan en tema oscuro, asi que al exportar hay que volver a
   // pintarlas en claro o el PDF sale con 4 rectangulos negros.
   const [pdfLight, setPdfLight] = useState(false);
+  // Detalle de la celda tocada en el mapa de calor (en móvil no hay hover).
+  const [heatCell, setHeatCell] = useState<{ dia: string; hora: number; valor: number } | null>(null);
   const chartGrid = pdfLight ? '#e8eaed' : cssVar('--surface-border', '#1f2a26');
   const chartRing = pdfLight ? '#ffffff' : cssVar('--card-bg', '#11191f');
 
   // TData es el tipo del ARRAY `data` (ChartDatasetProperties.data: TData) y
   // TLabel el de `labels`; se declaran iguales a los de cada grafica para que
   // la inferencia del `ref` y la del `data` no entren en conflicto.
-  const trendRef = useRef<ChartJS<'line', number[], string> | null>(null);
+  const trendRef = useRef<ChartJS<'bar'> | null>(null);
   const peakRef = useRef<ChartJS<'bar', number[], string> | null>(null);
   const donutRef = useRef<ChartJS<'doughnut', number[], string> | null>(null);
   const paretoRef = useRef<ChartJS<'bar'> | null>(null);
@@ -314,6 +462,7 @@ export default function AnalyticsDashboard() {
   if (!dashboardData || !productsData || !trendsData) return null;
 
   const { kpis, comparativa } = dashboardData;
+  const highlights = dashboardData.highlights;
   const totalIngresos = productsData.total_ingresos || 0;
   const totalComprobantes = kpis.total_comprobantes ?? trendsData.dataQuality?.comprobantes ?? 0;
   const ticketMediano = kpis.ticket_mediano ?? kpis.ticket_promedio;
@@ -332,6 +481,15 @@ export default function AnalyticsDashboard() {
     ? activeDays.reduce((max, d) => (d.ingresos > max.ingresos ? d : max), activeDays[0])
     : null;
   const paymentTotals = trendsData.payments?.reduce((acc: number, p) => acc + p.ingresos, 0) || 1;
+  const heatmapMax = Math.max(...(trendsData.heatmap?.matrix.flat() || [0]), 1);
+
+  // Sparklines de las KPI principales: la misma serie diaria, comprimida.
+  const timeSeries = trendsData.timeSeries || [];
+  const sparkRevenue = downsample(timeSeries.map((t) => t.ingresos));
+  const sparkOrders = downsample(timeSeries.map((t) => t.ordenes || 0));
+  const sparkTicket = downsample(
+    timeSeries.map((t) => (t.ordenes ? t.ingresos / t.ordenes : 0))
+  );
 
   // -- Inteligencia de negocio --
   const validTurnovers = trendsData.tableTurnover?.filter((t) => t.mesa && t.mins_promedio > 0) || [];
@@ -369,23 +527,40 @@ export default function AnalyticsDashboard() {
 
   // ===================== GRÁFICOS =====================
   
-  // Tendencia de Ingresos
+  // Evolución: barras de ingresos + línea de comandas (dos escalas).
   const trendData = {
     labels: trendsData.timeSeries?.map((t) => {
       const d = new Date(t.periodo);
       return d.toLocaleDateString('es-CR', { month: 'short', day: 'numeric' });
     }) || [],
-    datasets: [{
-      label: 'Ingresos Diarios',
-      data: trendsData.timeSeries?.map((t) => t.ingresos) || [],
-      borderColor: COLORS.primary,
-      backgroundColor: 'rgba(26, 115, 232, 0.08)',
-      fill: true,
-      tension: 0.4,
-      pointRadius: 4,
-      pointHoverRadius: 6,
-      pointBackgroundColor: COLORS.primary
-    }]
+    datasets: [
+      {
+        type: 'bar' as const,
+        label: 'Ingresos',
+        data: trendsData.timeSeries?.map((t) => t.ingresos) || [],
+        backgroundColor: 'rgba(16, 185, 129, 0.55)',
+        borderColor: COLORS.primary,
+        borderWidth: 1,
+        borderRadius: 6,
+        yAxisID: 'y',
+        order: 2
+      },
+      {
+        type: 'line' as const,
+        label: 'Comandas',
+        data: trendsData.timeSeries?.map((t) => t.ordenes || 0) || [],
+        borderColor: COLORS.orange,
+        backgroundColor: 'rgba(217, 119, 6, 0.12)',
+        borderWidth: 2,
+        tension: 0.4,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+        pointBackgroundColor: COLORS.orange,
+        fill: false,
+        yAxisID: 'y1',
+        order: 1
+      }
+    ]
   };
 
   // Horas Pico
@@ -401,11 +576,21 @@ export default function AnalyticsDashboard() {
     }]
   };
 
-  // Categorías (Dona)
+  // Categorías (Dona): las más chicas se agrupan en "Otras" para que la
+  // leyenda siga siendo legible en un móvil.
+  const allCategories = productsData!.categorias || [];
+  const topCategories = allCategories.slice(0, 7);
+  const othersTotal = allCategories.slice(7).reduce((s, c) => s + c.ingresos, 0);
   const donutData = {
-    labels: productsData!.categorias?.map((c) => c.nombre) || [],
+    labels: [
+      ...topCategories.map((c) => c.nombre),
+      ...(othersTotal > 0 ? ['Otras'] : []),
+    ],
     datasets: [{
-      data: productsData!.categorias?.map((c) => c.ingresos) || [],
+      data: [
+        ...topCategories.map((c) => c.ingresos),
+        ...(othersTotal > 0 ? [othersTotal] : []),
+      ],
       backgroundColor: COLORS.palette,
       hoverOffset: 8,
       borderWidth: 2,
@@ -441,7 +626,7 @@ export default function AnalyticsDashboard() {
   // Top 10 Productos
   const top10 = (productsData!.productos || []).slice(0, 10);
   const topProductsData = {
-    labels: top10.map((p) => p.producto.length > 22 ? p.producto.slice(0, 22) + '...' : p.producto),
+    labels: top10.map((p) => p.producto.length > 16 ? p.producto.slice(0, 16) + '…' : p.producto),
     datasets: [{
       label: 'Ingresos',
       data: top10.map((p) => p.ingresos),
@@ -474,6 +659,183 @@ export default function AnalyticsDashboard() {
         yAxisID: 'y'
       }
     ]
+  };
+
+  // ===================== STATS 2.0 =====================
+  // Récords en tarjetas: se arman acá para que el JSX quede legible.
+  const medals: MedalData[] = [];
+  if (highlights) {
+    const r = highlights.records;
+    if (r.mejor_dia) {
+      medals.push({
+        icon: '🏆',
+        label: 'Mejor día',
+        value: formatFechaKey(r.mejor_dia.periodo),
+        sub: `${formatColones(r.mejor_dia.ingresos)} · ${r.mejor_dia.ordenes} comandas`,
+        color: COLORS.success,
+      });
+    }
+    if (r.cuenta_maxima) {
+      const cliente = r.cuenta_maxima.cliente && !/^para llevar$/i.test(r.cuenta_maxima.cliente)
+        ? r.cuenta_maxima.cliente
+        : '';
+      const canal = r.cuenta_maxima.mesa === 99
+        ? 'Para llevar'
+        : r.cuenta_maxima.mesa
+          ? `Mesa ${r.cuenta_maxima.mesa}`
+          : '';
+      medals.push({
+        icon: '💎',
+        label: 'Cuenta más alta',
+        value: formatColones(r.cuenta_maxima.monto),
+        sub: [cliente, canal].filter(Boolean).join(' · ') || 'Sin identificar',
+        color: COLORS.orange,
+      });
+    }
+    if (r.producto_estrella) {
+      medals.push({
+        icon: '⭐',
+        label: 'Producto estrella',
+        value: r.producto_estrella.nombre,
+        sub: `${r.producto_estrella.unidades} unidades · ${formatColones(r.producto_estrella.ingresos)}`,
+        color: COLORS.primary,
+      });
+    }
+    if (r.cliente_fiel) {
+      medals.push({
+        icon: '❤️',
+        label: 'Cliente más fiel',
+        value: r.cliente_fiel.nombre,
+        sub: `${r.cliente_fiel.visitas} visitas · ${formatColones(r.cliente_fiel.ingresos)}`,
+        color: COLORS.pink,
+      });
+    }
+    if (r.racha && r.racha.dias > 1) {
+      medals.push({
+        icon: '🔥',
+        label: 'Racha de ventas',
+        value: `${r.racha.dias} días seguidos`,
+        sub: `${formatFechaKey(r.racha.desde)} → ${formatFechaKey(r.racha.hasta)}`,
+        color: COLORS.warning,
+      });
+    }
+    if (r.hora_top) {
+      medals.push({
+        icon: '⏰',
+        label: 'Hora más rentable',
+        value: `${r.hora_top.hora}:00`,
+        sub: `${formatColones(r.hora_top.ingresos)} · ${r.hora_top.ordenes} comandas`,
+        color: COLORS.teal,
+      });
+    }
+    if (r.peor_dia) {
+      medals.push({
+        icon: '📉',
+        label: 'Día más flojo',
+        value: formatFechaKey(r.peor_dia.periodo),
+        sub: `${formatColones(r.peor_dia.ingresos)} · oportunidad de promo`,
+        color: COLORS.gray,
+      });
+    }
+  }
+
+  const canalEntries = highlights
+    ? (['mesa', 'llevar', 'sin_clasificar'] as const)
+        .map((key) => ({ key, ...highlights.canales[key] }))
+        .filter((c) => c.ingresos > 0)
+    : [];
+  const canalData = {
+    labels: canalEntries.map((c) =>
+      c.key === 'mesa' ? 'En mesa' : c.key === 'llevar' ? 'Para llevar' : 'Sin clasificar'
+    ),
+    datasets: [
+      {
+        data: canalEntries.map((c) => c.ingresos),
+        backgroundColor: canalEntries.map((c) =>
+          c.key === 'mesa' ? COLORS.primary : c.key === 'llevar' ? COLORS.orange : COLORS.gray
+        ),
+        borderWidth: 2,
+        borderColor: chartRing,
+        hoverOffset: 8,
+      },
+    ],
+  };
+
+  const growth = highlights?.categorias_crecimiento || [];
+  // Los nombres largos ("Cócteles y Tragos — Tequila...") se cortan justo
+  // después del guion para que no queden dos etiquetas idénticas.
+  const shortCategory = (name: string) =>
+    name.includes('—') ? name.split('—').pop()!.trim() : name;
+  const growthData = {
+    labels: growth.map((g) => {
+      const short = shortCategory(g.nombre);
+      return short.length > 24 ? `${short.slice(0, 24)}...` : short;
+    }),
+    datasets: [
+      {
+        label: 'Crecimiento',
+        data: growth.map((g) => g.crecimiento_pct ?? 0),
+        backgroundColor: growth.map((g) =>
+          g.crecimiento_pct === null
+            ? COLORS.gray
+            : g.crecimiento_pct >= 0
+              ? COLORS.primary
+              : COLORS.danger
+        ),
+        borderRadius: 4,
+      },
+    ],
+  };
+
+  // Los días cerrados no tienen ticket: mostrarlos en cero confunde.
+  const ticketDay = (highlights?.ticket_por_dia || []).filter((d) => d.ordenes > 0);
+  const maxTicketDay = Math.max(...ticketDay.map((d) => d.ticket), 1);
+  const ticketDayData = {
+    labels: ticketDay.map((d) => DAYS_ES[d.dia_num]?.slice(0, 3) || d.dia.slice(0, 3)),
+    datasets: [
+      {
+        label: 'Ticket promedio',
+        data: ticketDay.map((d) => d.ticket),
+        backgroundColor: ticketDay.map((d) =>
+          d.ticket >= maxTicketDay ? COLORS.orange : COLORS.primary
+        ),
+        borderRadius: 6,
+      },
+    ],
+  };
+
+  const monthly = highlights?.historial_mensual || [];
+  const monthlyData = {
+    labels: monthly.map((m) => m.label),
+    datasets: [
+      {
+        label: 'Ingresos',
+        data: monthly.map((m) => m.ingresos),
+        backgroundColor: monthly.map((_, i) =>
+          i === monthly.length - 1 ? COLORS.orange : COLORS.primary
+        ),
+        borderRadius: 6,
+      },
+    ],
+  };
+
+  const gaugePct = Math.max(0, Math.min(100, Math.round(highlights?.meta?.avance_pct || 0)));
+  const gaugeData = {
+    labels: ['Avance', 'Falta'],
+    datasets: [
+      {
+        data: [gaugePct, 100 - gaugePct],
+        backgroundColor: [
+          gaugePct >= 100 ? COLORS.success : COLORS.primary,
+          'rgba(148, 163, 184, 0.18)',
+        ],
+        borderWidth: 0,
+      },
+    ],
+  };
+
+  const goTo = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   // Render
@@ -519,6 +881,97 @@ export default function AnalyticsDashboard() {
           </div>
         </div>
       </div>
+
+      <style>{`@media (max-width: 640px) { .stats-nav { position: static !important; } }`}</style>
+
+      {/* ===================== NAVEGACIÓN POR ANCLAS ===================== */}
+      <div
+        className="stats-nav"
+        style={{
+          position: 'sticky',
+          top: '108px',
+          zIndex: 1000,
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          padding: '8px 2px',
+          marginBottom: '16px',
+          background: 'var(--background)',
+          WebkitOverflowScrolling: 'touch',
+          scrollbarWidth: 'none'
+        }}
+      >
+        {STATS_NAV.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => goTo(item.id)}
+            style={{
+              flex: '0 0 auto',
+              padding: '10px 14px',
+              minHeight: '44px',
+              borderRadius: '999px',
+              border: '1px solid var(--surface-border)',
+              background: 'var(--card-bg)',
+              color: 'var(--text-secondary)',
+              fontSize: '0.78rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {item.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ===================== RESUMEN EJECUTIVO ===================== */}
+      <div id="stats-resumen" style={{ scrollMarginTop: '170px', marginBottom: '20px' }}>
+        <div style={{ background: 'linear-gradient(135deg, var(--primary-surface) 0%, var(--card-bg) 65%)', border: '1px solid var(--primary)', borderRadius: '16px', padding: '24px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+            <div>
+              <h3 style={{ margin: 0, fontSize: '1.25rem', color: 'var(--text-primary)', fontWeight: 800 }}>✨ Tu negocio en pocas palabras</h3>
+              <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                Lo que dicen los números de <strong>{periodoLabel}</strong>, explicado sin tecnicismos.
+              </p>
+            </div>
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--surface-border)', borderRadius: '10px', padding: '8px 12px', fontSize: '0.72rem', color: 'var(--text-secondary)' }}>
+              {kpis.total_ordenes} comandas · {kpis.dias_con_ventas ?? 0} días con ventas
+            </div>
+          </div>
+
+          {highlights?.resumen?.length ? (
+            <div style={{ display: 'grid', gap: '10px' }}>
+              {highlights.resumen.map((frase, i) => (
+                <div key={i} style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', background: 'var(--card-bg)', borderRadius: '10px', padding: '10px 12px', border: '1px solid var(--surface-border)' }}>
+                  <div style={{ flexShrink: 0, width: '22px', height: '22px', borderRadius: '50%', background: 'var(--primary-surface)', color: 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.72rem', fontWeight: 800 }}>{i + 1}</div>
+                  <div style={{ fontSize: '0.86rem', lineHeight: 1.5, color: 'var(--text-primary)' }}>{frase}</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Todavía no hay suficientes ventas en este período para armar el resumen.
+            </div>
+          )}
+
+          <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '12px' }}>
+            Se calcula solo con los comprobantes del período. Si un dato no aparece, es porque aún no hay suficientes ventas para medirlo.
+          </div>
+        </div>
+      </div>
+
+      {/* ===================== RÉCORDS DEL PERÍODO ===================== */}
+      {medals.length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', color: 'var(--text-primary)', fontWeight: 800 }}>🏅 Récords de {periodoLabel}</h3>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Los hitos que valen la pena contar</span>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(150px, 100%), 1fr))', gap: '12px' }}>
+            {medals.map((m, i) => <Medal key={i} data={m} />)}
+          </div>
+        </div>
+      )}
 
       {/* ===================== SMART INSIGHTS ===================== */}
       <div style={{ background: 'linear-gradient(135deg, var(--accent-soft) 0%, var(--accent-soft) 100%)', padding: '24px', borderRadius: '16px', marginBottom: '24px', border: '1px solid var(--accent-soft)', boxShadow: '0 4px 12px rgba(217,119,6,0.15)' }}>
@@ -567,10 +1020,13 @@ export default function AnalyticsDashboard() {
               color: comparativa.pct_cambio_ingresos >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
-              {comparativa.pct_cambio_ingresos >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ingresos)}%
+              {comparativa.pct_cambio_ingresos >= 0 ? '↑' : '↓'} {formatPct(Math.abs(comparativa.pct_cambio_ingresos))}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>vs. período anterior</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>vs. mismo período anterior</div>
+            <Sparkline values={sparkRevenue} color={COLORS.success} />
+          </div>
         </div>
 
         <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -584,10 +1040,13 @@ export default function AnalyticsDashboard() {
               color: comparativa.pct_cambio_ordenes >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
-              {comparativa.pct_cambio_ordenes >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ordenes)}%
+              {comparativa.pct_cambio_ordenes >= 0 ? '↑' : '↓'} {formatPct(Math.abs(comparativa.pct_cambio_ordenes))}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>clientes atendidos</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>clientes atendidos</div>
+            <Sparkline values={sparkOrders} color={COLORS.primary} />
+          </div>
         </div>
 
         <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -601,10 +1060,13 @@ export default function AnalyticsDashboard() {
               color: comparativa.pct_cambio_ticket >= 0 ? 'var(--primary)' : 'var(--danger)',
               padding: '6px 12px', borderRadius: '20px', fontSize: '0.85rem', fontWeight: 700
             }}>
-              {comparativa.pct_cambio_ticket >= 0 ? '↑' : '↓'} {Math.abs(comparativa.pct_cambio_ticket)}%
+              {comparativa.pct_cambio_ticket >= 0 ? '↑' : '↓'} {formatPct(Math.abs(comparativa.pct_cambio_ticket))}%
             </div>
           </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '8px' }}>por cliente</div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', gap: '8px', marginTop: '8px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>por cliente</div>
+            <Sparkline values={sparkTicket} color={COLORS.orange} />
+          </div>
         </div>
 
         <div style={{ background: 'var(--card-bg)', padding: '20px', borderRadius: '16px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
@@ -685,26 +1147,154 @@ export default function AnalyticsDashboard() {
         </div>
       )}
 
+      {/* ===================== PROYECCIÓN Y META ===================== */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(340px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-primary)', fontWeight: 700 }}>🎯 ¿Cómo va a cerrar el mes?</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Proyección al ritmo de los días transcurridos</p>
+
+          {highlights?.proyeccion ? (
+            <>
+              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--primary)', marginTop: '14px', lineHeight: 1.1 }}>
+                {formatColones(highlights.proyeccion.proyeccion)}
+              </div>
+              <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>cierre estimado del mes</div>
+
+              <div style={{ display: 'grid', gap: '8px', marginTop: '16px', fontSize: '0.82rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Ritmo actual</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{formatColones(highlights.proyeccion.promedio_diario)}/día</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Días transcurridos</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{highlights.proyeccion.dias_transcurridos} de {highlights.proyeccion.dias_mes}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '12px' }}>
+                  <span style={{ color: 'var(--text-secondary)' }}>Falta por vender (estimado)</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{formatColones(highlights.proyeccion.restante)}</strong>
+                </div>
+              </div>
+
+              <div style={{ height: '8px', background: 'var(--surface)', borderRadius: '4px', marginTop: '14px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.min(100, Math.round((highlights.proyeccion.dias_transcurridos / highlights.proyeccion.dias_mes) * 100))}%`, background: COLORS.primary, borderRadius: '4px' }} />
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                {Math.round((highlights.proyeccion.dias_transcurridos / highlights.proyeccion.dias_mes) * 100)}% del mes transcurrido
+              </div>
+
+              <Note
+                what="La proyección multiplica tu promedio diario por los días del mes. No es una promesa: es el ritmo que llevás hoy."
+                todo="Si querés cerrar más arriba, empujá los días flojos y las categorías con más salida."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              La proyección aparece cuando elegís el período <strong>Mes</strong>. En otros períodos no hay un cierre de mes que estimar.
+            </div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--text-primary)', fontWeight: 700 }}>🚀 Meta diaria sugerida</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>Una meta realista, basada en un buen día típico</p>
+
+          {highlights?.meta?.diaria ? (
+            <>
+              <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1.15fr)', gap: '12px', alignItems: 'center', marginTop: '8px' }}>
+                <div style={{ position: 'relative', height: '170px' }}>
+                  <Doughnut
+                    data={gaugeData}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      rotation: -90,
+                      circumference: 180,
+                      cutout: '72%',
+                      plugins: { legend: { display: false }, tooltip: { enabled: false } }
+                    }}
+                  />
+                  <div style={{ position: 'absolute', top: '42%', left: 0, right: 0, textAlign: 'center', pointerEvents: 'none' }}>
+                    <div style={{ fontSize: '1.7rem', fontWeight: 800, color: gaugePct >= 100 ? COLORS.success : 'var(--primary)', lineHeight: 1 }}>{gaugePct}%</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)', marginTop: '2px' }}>de la meta</div>
+                  </div>
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.55rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.1 }}>{formatColones(highlights.meta.diaria)}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '3px' }}>meta por día</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', marginTop: '12px' }}>
+                    Vas a <strong style={{ color: 'var(--text-primary)' }}>{formatColones(highlights.meta.promedio)}</strong> por día con ventas.
+                  </div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                    {highlights.meta.avance_pct >= 100
+                      ? '¡Vas por encima de la meta!'
+                      : `Te faltan ${formatColones(Math.max(0, highlights.meta.diaria - highlights.meta.promedio))} por día para alcanzarla.`}
+                  </div>
+                </div>
+              </div>
+              <Note
+                what="La meta es el monto de un buen día típico: 6 de cada 10 días vendieron menos que eso."
+                todo={highlights.meta.avance_pct >= 100 ? 'Sostené el ritmo y usá los días flojos para promociones puntuales.' : 'Elegí un producto de margen alto y ofrecelo como extra en cada cuenta.'}
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              Necesitás al menos un día con ventas para calcular la meta.
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* ===================== SECCIÓN: TENDENCIA ===================== */}
-      <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div id="stats-ventas" style={{ scrollMarginTop: '170px', background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>📈 Evolución de tus Ingresos</h3>
-            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Muestra cómo han cambiado tus ventas día a día</p>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Barras verdes: lo que vendiste. Línea naranja: cuántas comandas atendiste.</p>
           </div>
         </div>
-        <div style={{ height: '280px' }}>
-          <Line ref={trendRef} data={trendData} options={{
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: { legend: { display: false } },
-            scales: {
-              y: { beginAtZero: true, grid: { color: chartGrid } },
-              x: { grid: { display: false } }
-            },
-            interaction: { intersect: false, mode: 'index' }
-          }} />
+        <div style={{ height: '300px' }}>
+          <Chart
+            ref={trendRef}
+            type="bar"
+            data={trendData as unknown as ChartData<'bar'>}
+            options={{
+              responsive: true,
+              maintainAspectRatio: false,
+              interaction: { intersect: false, mode: 'index' },
+              plugins: {
+                legend: { display: true, position: 'top', labels: { usePointStyle: true, boxWidth: 8, padding: 14 } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const value = Number(ctx.parsed.y || 0);
+                      return ctx.dataset.label === 'Comandas'
+                        ? `${value} comandas`
+                        : `${ctx.dataset.label}: ${formatColones(value)}`;
+                    }
+                  }
+                }
+              },
+              scales: {
+                y: {
+                  beginAtZero: true,
+                  grid: { color: chartGrid },
+                  ticks: { callback: (value) => formatCompactColones(Number(value)) }
+                },
+                y1: {
+                  position: 'right',
+                  beginAtZero: true,
+                  grid: { drawOnChartArea: false },
+                  ticks: { precision: 0 }
+                },
+                x: { grid: { display: false }, ticks: { maxTicksLimit: 7, autoSkip: true } }
+              }
+            }}
+          />
         </div>
+        <Note
+          what="Cada barra es un día. La altura muestra los ingresos y la línea naranja las comandas: un día puede vender mucho con pocas cuentas grandes, o vender parecido con muchas cuentas chicas."
+          todo="Compará los días altos con los bajos: fijate qué pasó (clima, promo, día de la semana) y repetí lo que funcionó."
+        />
       </div>
 
       {/* ===================== GRID 2 COLUMNAS ===================== */}
@@ -728,8 +1318,18 @@ export default function AnalyticsDashboard() {
             <Bar ref={peakRef} data={peakHoursData} options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, grid: { color: chartGrid } }, x: { grid: { display: false } } }
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const item = trendsData.goldenHours?.[ctx.dataIndex];
+                      return `${formatColones(Number(ctx.parsed.y || 0))} · ${item?.ordenes || 0} comandas`;
+                    }
+                  }
+                }
+              },
+              scales: { y: { beginAtZero: true, grid: { color: chartGrid }, ticks: { callback: (value) => formatCompactColones(Number(value)) } }, x: { grid: { display: false }, ticks: { maxTicksLimit: 8, autoSkip: true } } }
             }} />
           </div>
           <TooltipCard icon="💡" title="Consejo">
@@ -755,8 +1355,18 @@ export default function AnalyticsDashboard() {
             <Bar ref={weekdayRef} data={weekdayData} options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { y: { beginAtZero: true, grid: { color: chartGrid } }, x: { grid: { display: false } } }
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const item = trendsData.weekdays?.[ctx.dataIndex];
+                      return `${formatColones(Number(ctx.parsed.y || 0))} · ${item?.ordenes || 0} comandas`;
+                    }
+                  }
+                }
+              },
+              scales: { y: { beginAtZero: true, grid: { color: chartGrid }, ticks: { callback: (value) => formatCompactColones(Number(value)) } }, x: { grid: { display: false } } }
             }} />
           </div>
           <TooltipCard icon="💡" title="Consejo">
@@ -773,7 +1383,12 @@ export default function AnalyticsDashboard() {
               responsive: true,
               maintainAspectRatio: false,
               plugins: { 
-                legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true } }
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.label}: ${formatColones(Number(ctx.raw))}`
+                  }
+                }
               },
               cutout: '60%'
             }} />
@@ -796,11 +1411,18 @@ export default function AnalyticsDashboard() {
         <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
           <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700, marginBottom: '4px' }}>🍽️ Qué se Vende Más</h3>
           <p style={{ margin: '0 0 16px 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Por categoría de producto</p>
-          <div style={{ height: '200px' }}>
+          <div style={{ height: '260px' }}>
             <Doughnut ref={donutRef} data={donutData} options={{
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { position: 'right', labels: { padding: 12, usePointStyle: true, font: { size: 11 } } } },
+              plugins: {
+                legend: { position: 'bottom', labels: { padding: 8, usePointStyle: true, boxWidth: 8, font: { size: 10 } } },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => `${ctx.label}: ${formatColones(Number(ctx.raw))}`
+                  }
+                }
+              },
               cutout: '55%'
             }} />
           </div>
@@ -810,8 +1432,114 @@ export default function AnalyticsDashboard() {
         </div>
       </div>
 
+      {/* ===================== CANALES, DESCUENTOS Y HORA ACTIVA ===================== */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(300px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>🍽️ Mesa vs. Para Llevar</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>De dónde viene tu venta</p>
+
+          {canalEntries.length > 0 ? (
+            <>
+              <div style={{ position: 'relative', height: '180px', marginTop: '8px' }}>
+                <Doughnut
+                  data={canalData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '62%',
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => `${ctx.label}: ${formatColones(Number(ctx.raw))}`
+                        }
+                      }
+                    }
+                  }}
+                />
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)' }}>{formatColones(kpis.ingresos_totales)}</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>ventas</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gap: '8px', marginTop: '12px' }}>
+                {canalEntries.map((c) => (
+                  <div key={c.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.78rem' }}>
+                    <span style={{ width: '10px', height: '10px', borderRadius: '50%', background: c.key === 'mesa' ? COLORS.primary : c.key === 'llevar' ? COLORS.orange : COLORS.gray, flexShrink: 0 }} />
+                    <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{c.key === 'mesa' ? 'En mesa' : c.key === 'llevar' ? 'Para llevar' : 'Sin clasificar'}</span>
+                    <strong style={{ color: 'var(--text-primary)' }}>{formatPct(c.pct)}%</strong>
+                    <span style={{ color: 'var(--text-muted)', width: '72px', textAlign: 'right' }}>{formatColones(c.ingresos)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', marginTop: '8px' }}>
+                Cuenta promedio: mesa {formatColones(highlights!.canales.mesa.ticket_promedio)} · llevar {formatColones(highlights!.canales.llevar.ticket_promedio)}
+              </div>
+              <Note
+                what="Mesa y para llevar son dos negocios distintos: distinto ticket, distinto tiempo y distinto personal."
+                todo="Si el para llevar crece, prepará un punto de empaque y una fila rápida para no frenar el salón."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin ventas clasificadas en este período.</div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>🏷️ Descuentos Otorgados</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Cuánto estás regalando</p>
+
+          {highlights ? (
+            <>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginTop: '18px', flexWrap: 'wrap' }}>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: highlights.descuentos.pct > 10 ? COLORS.danger : COLORS.orange }}>{formatColones(highlights.descuentos.monto)}</div>
+                <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>{formatPct(highlights.descuentos.pct)}% de lo vendido</div>
+              </div>
+              <div style={{ height: '10px', background: 'var(--surface)', borderRadius: '5px', marginTop: '12px', overflow: 'hidden' }}>
+                <div style={{ height: '100%', width: `${Math.min(100, highlights.descuentos.pct)}%`, background: highlights.descuentos.pct > 10 ? COLORS.danger : COLORS.orange, borderRadius: '5px' }} />
+              </div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '12px', lineHeight: 1.6 }}>
+                De cada <strong>₡100</strong> que entraron, <strong>₡{formatPct(highlights.descuentos.pct)}</strong> fueron descuento.
+                <br />
+                {highlights.descuentos.con_descuento} de {highlights.descuentos.comprobantes} comprobantes llevaron descuento.
+              </div>
+              <Note
+                what="Un descuento no es una venta perdida: es una venta con menos margen. Lo importante es cuánto pesa sobre el total."
+                todo={highlights.descuentos.pct > 10 ? 'Revisá los motivos y poné un tope por cuenta: más de 10% ya es mucho para un negocio de comida.' : 'Mantené el control: si superás el 10%, revisá qué promociones están comiendo el margen.'}
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin datos de descuentos.</div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>⚡ Ingreso por Hora Activa</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Lo que genera cada hora con movimiento</p>
+
+          {highlights?.ingreso_hora_activa?.horas ? (
+            <>
+              <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '18px' }}>{formatColones(highlights.ingreso_hora_activa.promedio)}</div>
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                en {highlights.ingreso_hora_activa.horas} horas con al menos una venta
+              </div>
+              <div style={{ background: 'var(--surface)', borderRadius: '10px', padding: '12px', marginTop: '16px', fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                Equivale a <strong style={{ color: 'var(--text-primary)' }}>{(highlights.ingreso_hora_activa.promedio / Math.max(1, kpis.ticket_promedio)).toFixed(1)} cuentas promedio</strong> por hora.
+                {highlights.records.hora_top && <> Tu hora más fuerte es a las <strong style={{ color: 'var(--text-primary)' }}>{highlights.records.hora_top.hora}:00</strong>.</>}
+              </div>
+              <Note
+                what="No todas las horas abiertas venden igual. Este número muestra el valor real de una hora con movimiento."
+                todo="Concentrá promociones y personal en las horas que sí generan; las horas muertas cuestan igual."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin horas con ventas.</div>
+          )}
+        </div>
+      </div>
+
       {/* ===================== TOP PRODUCTOS ===================== */}
-      <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+      <div id="stats-productos" style={{ scrollMarginTop: '170px', background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', marginBottom: '20px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '20px' }}>
           <div>
             <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🏆 Tus Productos Estrella</h3>
@@ -828,8 +1556,21 @@ export default function AnalyticsDashboard() {
               indexAxis: 'y',
               responsive: true,
               maintainAspectRatio: false,
-              plugins: { legend: { display: false } },
-              scales: { x: { beginAtZero: true, grid: { color: chartGrid } }, y: { grid: { display: false } } }
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  callbacks: {
+                    label: (ctx) => {
+                      const item = top10[ctx.dataIndex];
+                      return `${formatColones(Number(ctx.parsed.x || 0))} · ${item?.unidades_vendidas || 0} vendidos`;
+                    }
+                  }
+                }
+              },
+              scales: {
+                x: { beginAtZero: true, grid: { color: chartGrid }, ticks: { callback: (value) => formatCompactColones(Number(value)) } },
+                y: { grid: { display: false } }
+              }
             }} />
           </div>
           
@@ -859,6 +1600,10 @@ export default function AnalyticsDashboard() {
             </table>
           </div>
         </div>
+        <Note
+          what="Los productos marcados como VITAL (A) son los que sostienen la caja: si faltan, se nota de inmediato. Los C son los que menos aportan."
+          todo="Asegurá stock de los A y revisá si los C valen la pena o conviene reemplazarlos por algo con más salida."
+        />
       </div>
 
       {/* ===================== PARETO ===================== */}
@@ -879,14 +1624,117 @@ export default function AnalyticsDashboard() {
           <Chart ref={paretoRef} type="bar" data={paretoData as unknown as ChartData<'bar'>} options={{
             responsive: true,
             maintainAspectRatio: false,
-            plugins: { 
-              legend: { display: true, position: 'top' }
+            interaction: { intersect: false, mode: 'index' },
+            plugins: {
+              legend: { display: true, position: 'top' },
+              tooltip: {
+                callbacks: {
+                  label: (ctx) =>
+                    ctx.dataset.label === '% Acumulado'
+                      ? `${Number(ctx.parsed.y || 0)}% acumulado`
+                      : formatColones(Number(ctx.parsed.y || 0))
+                }
+              }
             },
             scales: {
-              y: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: chartGrid } },
+              y: { type: 'linear', position: 'left', beginAtZero: true, grid: { color: chartGrid }, ticks: { callback: (value) => formatCompactColones(Number(value)) } },
               y1: { type: 'linear', position: 'right', grid: { drawOnChartArea: false }, min: 0, max: 100 }
             }
           }} />
+        </div>
+        <Note
+          what="El 80/20 dice que pocos productos generan la mayor parte de la venta. La línea roja muestra cómo se acumula ese porcentaje."
+          todo="Concentrá compras y stock en los productos que llegan rápido al 80%. Si un producto C ocupa espacio, cuestioná su lugar."
+        />
+      </div>
+
+      {/* ===================== CRECIMIENTO Y TICKET POR DÍA ===================== */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(350px, 100%), 1fr))', gap: '20px', marginBottom: '20px' }}>
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>📈 Qué Categoría Creció</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Comparado con el mismo período anterior</p>
+          {growth.length > 0 ? (
+            <>
+              <div style={{ height: '300px', marginTop: '8px' }}>
+                <Bar
+                  data={growthData}
+                  options={{
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => {
+                            const item = growth[ctx.dataIndex];
+                            if (!item || item.crecimiento_pct === null) return `${formatColones(item?.ingresos || 0)} · sin base anterior`;
+                            return `${item.crecimiento_pct > 0 ? '+' : ''}${formatPct(item.crecimiento_pct)}% · ${formatColones(item.ingresos)} este período`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      x: {
+                        grid: { color: chartGrid },
+                        ticks: { callback: (value) => `${Number(value) > 0 ? '+' : ''}${Number(value)}%` }
+                      },
+                      y: { grid: { display: false } }
+                    }
+                  }}
+                />
+              </div>
+              <Note
+                what="Verde es una categoría que vendió más que antes; rojo, una que vendió menos. La barra gris es una categoría nueva, sin base para comparar."
+                todo="Duplicá la visibilidad de las que suben y revisá precio, promoción o disponibilidad de las que bajan."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin categorías para comparar.</div>
+          )}
+        </div>
+
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <h3 style={{ margin: 0, fontSize: '1.1rem', color: 'var(--text-primary)', fontWeight: 700 }}>💳 Ticket Promedio por Día</h3>
+          <p style={{ margin: '4px 0 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Qué día gastan más por cuenta</p>
+          {ticketDay.length > 0 ? (
+            <>
+              <div style={{ height: '300px', marginTop: '8px' }}>
+                <Bar
+                  data={ticketDayData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => {
+                            const item = ticketDay[ctx.dataIndex];
+                            return `${formatColones(Number(ctx.parsed.y || 0))} por cuenta · ${item?.ordenes || 0} comandas`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        grid: { color: chartGrid },
+                        ticks: { callback: (value) => formatCompactColones(Number(value)) }
+                      },
+                      x: { grid: { display: false } }
+                    }
+                  }}
+                />
+              </div>
+              <Note
+                what="No es lo mismo vender mucho que vender caro. Este gráfico muestra cuánto gasta en promedio cada mesa según el día."
+                todo="El día con ticket más alto es el mejor para sugerir postres, extras o combos; el más bajo, para promociones de entrada."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin días con ventas.</div>
+          )}
         </div>
       </div>
 
@@ -924,6 +1772,10 @@ export default function AnalyticsDashboard() {
               ))}
             </div>
           )}
+          <Note
+            what="Son los pares que más se piden juntos. Si alguien pide uno, hay buena chance de que también quiera el otro."
+            todo="Entrená al personal para ofrecer el segundo producto justo cuando piden el primero. Es la venta más fácil."
+          />
         </div>
 
         {/* TIEMPOS DE MESA (TABLE TURNOVER) */}
@@ -1042,6 +1894,48 @@ export default function AnalyticsDashboard() {
               })}
             </div>
           )}
+          <Note
+            what="'Una visita' son clientes que vinieron una vez. 'Recurrente' y 'Frecuente' son los que ya volvieron: son la base del negocio."
+            todo="Cuidá a los recurrentes: un saludo, su mesa preferida o un detalle cuestan poco y valen mucho."
+          />
+        </div>
+
+        {/* ===================== CLIENTES VIP ===================== */}
+        <div id="stats-clientes" style={{ scrollMarginTop: '170px', background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>💛 Tus Clientes VIP</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los que más vuelven y más gastan</p>
+          </div>
+          {highlights?.top_clientes?.length ? (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {highlights.top_clientes.map((c, i) => (
+                  <div key={`${c.nombre}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px', background: 'var(--surface)', borderRadius: '8px' }}>
+                    <div style={{ width: '26px', height: '26px', borderRadius: '50%', background: i === 0 ? COLORS.orange : 'var(--primary-surface)', color: i === 0 ? 'white' : 'var(--primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 800, flexShrink: 0 }}>{i + 1}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={c.nombre}>{c.nombre}</div>
+                      <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)' }}>{c.visitas} visitas · {formatColones(c.ticket_promedio)} por visita</div>
+                    </div>
+                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                      <div style={{ fontSize: '0.88rem', fontWeight: 800, color: 'var(--primary)' }}>{formatColones(c.ingresos)}</div>
+                      <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)' }}>acumulado</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '12px', background: 'var(--primary-surface)', borderRadius: '8px', padding: '8px 10px' }}>
+                {highlights.clientes.recurrentes} de {highlights.clientes.identificados} clientes identificados volvieron más de una vez ({formatPct(highlights.clientes.pct_recurrentes)}%).
+              </div>
+              <Note
+                what="Un cliente frecuente ya confía en el negocio: cuesta mucho menos que conseguir uno nuevo."
+                todo="Reconocelos, guardá su preferencia y dales un trato especial. Un cliente VIP bien atendido trae a otros."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)' }}>
+              Todavía no hay clientes identificados. Anotá nombre o teléfono al crear la comanda y empezá a medirlos.
+            </div>
+          )}
         </div>
 
         {/* ===================== TENDENCIAS DE PRODUCTOS ===================== */}
@@ -1081,14 +1975,14 @@ export default function AnalyticsDashboard() {
         </div>
 
         {trendsData.heatmap && trendsData.heatmap.matrix.some((row) => row.some((v) => v > 0)) && (
-          <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div id="stats-operacion" style={{ scrollMarginTop: '170px', background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
             <div style={{ marginBottom: '12px' }}>
               <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🗓️ Mapa de Calor: Día y Hora</h3>
               <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cuándo se concentran las ventas (cada cuadro es una hora del día)</p>
             </div>
             {(() => {
               const hm = trendsData.heatmap!;
-              const maxValor = Math.max(...hm.matrix.flat(), 1);
+              const maxValor = heatmapMax;
               return (
                 <div style={{ overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
                   <div style={{ display: 'grid', gridTemplateColumns: '40px repeat(24, 20px)', gap: '2px', minWidth: '540px' }}>
@@ -1105,17 +1999,24 @@ export default function AnalyticsDashboard() {
                         </div>
                         {row.map((valor, horaIdx) => {
                           const intensidad = valor / maxValor;
+                          const seleccionada =
+                            heatCell?.dia === hm.dias[diaIdx] && heatCell?.hora === hm.horas[horaIdx];
                           return (
                             <div
                               key={`c${diaIdx}-${horaIdx}`}
                               title={`${hm.dias[diaIdx]} ${hm.horas[horaIdx]}:00 — ${formatColones(valor)}`}
+                              onClick={() =>
+                                setHeatCell({ dia: hm.dias[diaIdx], hora: hm.horas[horaIdx], valor })
+                              }
                               style={{
                                 height: '20px',
+                                width: '100%',
                                 borderRadius: '3px',
+                                cursor: valor > 0 ? 'pointer' : 'default',
                                 background: valor > 0
                                   ? `rgba(4, 120, 87, ${0.15 + intensidad * 0.85})`
                                   : 'var(--surface)',
-                                border: '1px solid var(--surface-border)',
+                                border: seleccionada ? '2px solid var(--accent)' : '1px solid var(--surface-border)',
                               }}
                             />
                           );
@@ -1126,8 +2027,23 @@ export default function AnalyticsDashboard() {
                 </div>
               );
             })()}
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '10px' }}>
-              Verde intenso = más ventas en esa franja. Usalo para programar al personal extra.
+            {heatCell && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap', marginTop: '10px', background: 'var(--primary-surface)', border: '1px solid var(--primary)', borderRadius: '8px', padding: '8px 10px', fontSize: '0.78rem' }}>
+                <strong style={{ color: 'var(--text-primary)' }}>{heatCell.dia} a las {heatCell.hora}:00</strong>
+                <span style={{ color: 'var(--text-secondary)' }}>{formatColones(heatCell.valor)}</span>
+                <span style={{ color: 'var(--text-muted)' }}>{Math.round((heatCell.valor / heatmapMax) * 100)}% del pico</span>
+              </div>
+            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', marginTop: '10px', fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+              <span>Menos ventas</span>
+              {[0.12, 0.3, 0.5, 0.7, 0.9].map((n) => (
+                <span key={n} style={{ width: '18px', height: '12px', borderRadius: '2px', background: `rgba(4, 120, 87, ${n})`, border: '1px solid var(--surface-border)' }} />
+              ))}
+              <span>Más ventas</span>
+              <span style={{ marginLeft: 'auto' }}>Pico: {formatColones(heatmapMax)}</span>
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+              Verde intenso = más ventas en esa franja. Tocá un cuadro para ver el monto exacto. Usalo para programar al personal extra.
             </div>
           </div>
         )}
@@ -1157,6 +2073,131 @@ export default function AnalyticsDashboard() {
           </div>
         )}
 
+        {/* ===================== PRODUCTOS SIN VENTA ===================== */}
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🧊 Productos sin Ventas</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Los que están en el menú pero no se movieron</p>
+          </div>
+          {highlights ? (
+            highlights.productos_sin_venta.total > 0 ? (
+              <>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                  <div style={{ fontSize: '2rem', fontWeight: 800, color: COLORS.orange }}>{highlights.productos_sin_venta.total}</div>
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>productos sin una sola venta</div>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '12px' }}>
+                  {highlights.productos_sin_venta.productos.map((p, i) => (
+                    <div key={`${p.nombre}-${i}`} style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 10px', background: 'var(--surface)', borderRadius: '8px', fontSize: '0.8rem' }}>
+                      <span style={{ flex: 1, minWidth: 0, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={p.nombre}>{p.nombre}</span>
+                      <span style={{ color: 'var(--text-muted)', fontSize: '0.72rem', flexShrink: 0 }}>{p.categoria}</span>
+                      <span style={{ color: 'var(--text-secondary)', fontWeight: 700, flexShrink: 0 }}>{formatColones(p.precio)}</span>
+                    </div>
+                  ))}
+                  {highlights.productos_sin_venta.total > highlights.productos_sin_venta.productos.length && (
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)' }}>
+                      +{highlights.productos_sin_venta.total - highlights.productos_sin_venta.productos.length} productos más en el menú.
+                    </div>
+                  )}
+                </div>
+                <Note
+                  what="Tener un producto en el menú también cuesta: ocupa espacio, confunde y puede echarse a perder."
+                  todo="Probalo como especial del día, cambiale el nombre o sacalo del menú. Un menú corto vende más."
+                />
+              </>
+            ) : (
+              <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                ¡Todo el menú se movió en este período! No hay productos dormidos.
+              </div>
+            )
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin datos del menú.</div>
+          )}
+        </div>
+
+        {/* ===================== HISTORIAL MENSUAL ===================== */}
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🗓️ Así Viene Tu Negocio</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Últimos meses · el mes en curso va en naranja</p>
+          </div>
+          {monthly.length > 0 ? (
+            <>
+              <div style={{ height: '220px' }}>
+                <Bar
+                  data={monthlyData}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: { display: false },
+                      tooltip: {
+                        callbacks: {
+                          label: (ctx) => {
+                            const item = monthly[ctx.dataIndex];
+                            return `${formatColones(Number(ctx.parsed.y || 0))} · ${item?.ordenes || 0} comandas`;
+                          }
+                        }
+                      }
+                    },
+                    scales: {
+                      y: {
+                        beginAtZero: true,
+                        grid: { color: chartGrid },
+                        ticks: { callback: (value) => formatCompactColones(Number(value)) }
+                      },
+                      x: { grid: { display: false } }
+                    }
+                  }}
+                />
+              </div>
+              <Note
+                what="Cada barra es un mes completo. El mes en curso todavía no terminó, así que su barra puede quedar más baja."
+                todo="Compará meses para saber si estás creciendo de verdad o si un mes bueno fue solo casualidad."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin historial suficiente.</div>
+          )}
+        </div>
+
+        {/* ===================== VENTAS POR MESA ===================== */}
+        <div style={{ background: 'var(--card-bg)', borderRadius: '16px', padding: '24px', border: '1px solid var(--surface-border)', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+          <div style={{ marginBottom: '16px' }}>
+            <h3 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--text-primary)', fontWeight: 700 }}>🪑 Ventas por Mesa</h3>
+            <p style={{ margin: '4px 0 0 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Cuánto aporta cada mesa al total</p>
+          </div>
+          {highlights?.ventas_por_mesa?.length ? (
+            <>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                {highlights.ventas_por_mesa.map((v) => {
+                  const maxMesa = Math.max(...highlights.ventas_por_mesa.map((x) => x.ingresos), 1);
+                  return (
+                    <div key={v.mesa} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <div style={{ width: '64px', fontSize: '0.78rem', fontWeight: 700, color: v.mesa === 99 ? 'var(--accent)' : 'var(--text-secondary)', flexShrink: 0 }}>
+                        {v.mesa === 99 ? 'Llevar' : `Mesa ${v.mesa}`}
+                      </div>
+                      <div style={{ flex: 1, minWidth: '30px', background: 'var(--surface)', height: '10px', borderRadius: '5px', overflow: 'hidden' }}>
+                        <div style={{ height: '100%', width: `${Math.max(4, Math.round((v.ingresos / maxMesa) * 100))}%`, background: v.mesa === 99 ? COLORS.orange : COLORS.primary, borderRadius: '5px' }} />
+                      </div>
+                      <div style={{ width: '92px', textAlign: 'right', flexShrink: 0 }}>
+                        <div style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-primary)' }}>{formatColones(v.ingresos)}</div>
+                        <div style={{ fontSize: '0.66rem', color: 'var(--text-muted)' }}>{formatPct(v.pct)}% · {v.ordenes} comandas</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <Note
+                what="Las mesas 1 a 6 son salón; la 99 es para llevar. Este reparto muestra dónde se concentra la facturación."
+                todo="Si una mesa factura mucho más, revisá si conviene reservarla o sumar otra en la misma zona."
+              />
+            </>
+          ) : (
+            <div style={{ padding: '20px 0', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Sin mesas cerradas en este período.</div>
+          )}
+        </div>
+
         {/* ===================== MÉTRICAS DE VELOCIDAD ===================== */}
         {speedMetrics.length > 0 && (
           <div style={{ background: 'linear-gradient(135deg, var(--primary-surface) 0%, var(--primary-glow) 100%)', borderRadius: '16px', padding: '24px', border: '1px solid var(--primary)', boxShadow: '0 4px 12px rgba(52,168,83,0.15)' }}>
@@ -1169,8 +2210,8 @@ export default function AnalyticsDashboard() {
                 <div key={i} style={{ background: 'var(--card-bg)', padding: '16px', borderRadius: '12px', textAlign: 'center' }}>
                   <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, textTransform: 'uppercase' }}>{m.descripcion}</div>
                   <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>
-                    {m.metric === 'órdenes_día' || m.metric === 'ingresos_día' || m.metric === 'ticket_promedio' 
-                      ? (m.metric === 'ticket_promedio' ? formatColones(m.valor) : formatColones(m.valor))
+                    {m.metric === 'ingresos_día' || m.metric === 'ticket_promedio'
+                      ? formatColones(m.valor)
                       : Math.round(m.valor)}
                   </div>
                 </div>

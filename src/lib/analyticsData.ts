@@ -8,6 +8,7 @@ import type {
   PagoRow,
 } from "@/types/db";
 import { getCRDateKey, getCRHour, getCRWeekday } from "./analytics";
+import { formatColones } from "./format";
 
 type Supabase = SupabaseClient<Database>;
 
@@ -23,6 +24,8 @@ export type AnalyticsCore = {
   ordersById: Map<string, OrdenRow>;
   closedOrders: OrdenRow[];
   productCategory: Map<string, string>;
+  /** Catálogo actual: sirve para detectar productos sin ventas. */
+  productos: { nombre: string; categoria: string; precio: number; disponible: boolean }[];
   itemsByOrder: Map<string, Map<string, ProductItem>>;
   orderTotals: Map<string, number>;
 };
@@ -85,6 +88,16 @@ function percentile(values: number[], p: number): number {
   const sorted = [...values].sort((a, b) => a - b);
   const idx = Math.min(sorted.length - 1, Math.max(0, Math.ceil(p * sorted.length) - 1));
   return sorted[idx];
+}
+
+const DIAS_CORTOS = ["dom", "lun", "mar", "mié", "jue", "vie", "sáb"];
+
+/** "2026-10-04" → "sáb 4 oct". Se arma en UTC para no correr el día. */
+function formatFecha(key: string): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d, 12));
+  const mes = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"][m - 1] || "";
+  return `${DIAS_CORTOS[date.getUTCDay()] || ""} ${d} ${mes}`.trim();
 }
 
 function itemName(item: ComprobanteSnapshot): string {
@@ -165,7 +178,7 @@ export async function loadAnalyticsCore(
 
   const { data: productsData } = await supabase
     .from("productos")
-    .select("nombre,categoria_id");
+    .select("nombre,categoria_id,precio,disponible");
   const { data: catsData } = await supabase
     .from("categorias")
     .select("id,nombre");
@@ -173,6 +186,12 @@ export async function loadAnalyticsCore(
   const productCategory = new Map(
     (productsData || []).map((p) => [p.nombre, catMap.get(p.categoria_id as string) || "Otros"])
   );
+  const productos = (productsData || []).map((p) => ({
+    nombre: String(p.nombre || ""),
+    categoria: catMap.get(p.categoria_id as string) || "Otros",
+    precio: Number(p.precio || 0),
+    disponible: p.disponible !== false,
+  }));
 
   const itemsByOrder = new Map<string, Map<string, ProductItem>>();
   const orderTotals = new Map<string, number>();
@@ -214,6 +233,7 @@ export async function loadAnalyticsCore(
     ordersById,
     closedOrders,
     productCategory,
+    productos,
     itemsByOrder,
     orderTotals,
   };
@@ -279,6 +299,80 @@ export async function fetchSalesTotals(
     ventas: round2(ventas),
     ticket_promedio: values.length ? round2(ventas / values.length) : 0,
   };
+}
+
+/**
+ * Mezcla de productos del período anterior, a partir del snapshot de los
+ * comprobantes. Se usa solo para comparar el crecimiento por categoría; no
+ * necesita pagos ni órdenes, así que es una única consulta liviana.
+ */
+export async function fetchPrevCategoryMix(
+  supabase: Supabase,
+  start: string,
+  end: string
+): Promise<{ nombre: string; categoria: string | null; ingresos: number }[]> {
+  const { data, error } = await supabase
+    .from("comprobantes")
+    .select("items_snapshot")
+    .gte("created_at", start)
+    .lte("created_at", end);
+  if (error) throw error;
+
+  const map = new Map<string, { nombre: string; categoria: string | null; ingresos: number }>();
+  for (const row of data || []) {
+    for (const item of snapshotArray(row.items_snapshot)) {
+      const nombre = itemName(item);
+      const categoria =
+        typeof item.categoria === "string" && item.categoria ? item.categoria : null;
+      const current = map.get(nombre) || { nombre, categoria, ingresos: 0 };
+      current.ingresos += itemRevenue(item);
+      if (!current.categoria && categoria) current.categoria = categoria;
+      map.set(nombre, current);
+    }
+  }
+  return [...map.values()].map((p) => ({ ...p, ingresos: round2(p.ingresos) }));
+}
+
+const MESES_CORTOS = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
+
+/**
+ * Ingresos y comandas de los últimos `months` meses (incluye el mes en curso).
+ * Permite mostrar la estacionalidad sin depender del período seleccionado.
+ */
+export async function fetchMonthlyHistory(
+  supabase: Supabase,
+  months = 4
+): Promise<{ mes: string; label: string; ingresos: number; ordenes: number }[]> {
+  const nowIso = new Date().toISOString();
+  const nowKey = getCRDateKey(nowIso);
+  const [year, month] = nowKey.split("-").map(Number);
+  // Si el mes actual es octubre (10), se arranca en julio (índice 6).
+  const from = new Date(Date.UTC(year, month - months, 1, 6, 0, 0));
+
+  const { data, error } = await supabase
+    .from("comprobantes")
+    .select("orden_id,total,created_at")
+    .gte("created_at", from.toISOString())
+    .lte("created_at", nowIso);
+  if (error) throw error;
+
+  const map = new Map<string, { ingresos: number; ordenes: Set<string> }>();
+  for (const row of data || []) {
+    const key = getCRDateKey(row.created_at).slice(0, 7);
+    const current = map.get(key) || { ingresos: 0, ordenes: new Set<string>() };
+    current.ingresos += Number(row.total || 0);
+    current.ordenes.add(row.orden_id || "sin-orden");
+    map.set(key, current);
+  }
+
+  return [...map.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([mes, v]) => ({
+      mes,
+      label: MESES_CORTOS[Number(mes.slice(5, 7)) - 1] || mes,
+      ingresos: round2(v.ingresos),
+      ordenes: v.ordenes.size,
+    }));
 }
 
 function buildTimeSeries(core: AnalyticsCore) {
@@ -562,7 +656,7 @@ function buildTurnover(core: AnalyticsCore) {
     .sort((a, b) => a.mesa - b.mesa);
 }
 
-function buildRetention(core: AnalyticsCore) {
+function customerAgg(core: AnalyticsCore) {
   const byCustomer = new Map<string, { ordenes: number; ingresos: number }>();
 
   for (const [orderId, total] of core.orderTotals) {
@@ -571,14 +665,36 @@ function buildRetention(core: AnalyticsCore) {
     const rawName = String(order.cliente_nombre || "").trim();
     const afterDash = rawName.match(/\s-\s(.+)$/)?.[1]?.trim();
     const phone = String(order.cliente_telefono || "").trim();
-    const candidate = phone || afterDash || rawName;
+    // Para mostrar, el nombre es más cálido que el teléfono; pero si el
+    // nombre es genérico ("Mesa 3", "Para llevar") se usa el teléfono.
+    const candidate =
+      [afterDash, rawName, phone].find(
+        (c) => c && !/^mesa\s+\d+$/i.test(c) && !/^para llevar$/i.test(c)
+      ) || "";
     if (!candidate) continue;
-    if (/^mesa\s+\d+$/i.test(candidate) || /^para llevar$/i.test(candidate)) continue;
     const current = byCustomer.get(candidate) || { ordenes: 0, ingresos: 0 };
     current.ordenes += 1;
     current.ingresos += total;
     byCustomer.set(candidate, current);
   }
+
+  return byCustomer;
+}
+
+function buildTopCustomers(core: AnalyticsCore) {
+  return [...customerAgg(core).entries()]
+    .map(([nombre, v]) => ({
+      nombre,
+      visitas: v.ordenes,
+      ingresos: round2(v.ingresos),
+      ticket_promedio: v.ordenes ? round2(v.ingresos / v.ordenes) : 0,
+    }))
+    .sort((a, b) => b.visitas - a.visitas || b.ingresos - a.ingresos)
+    .slice(0, 5);
+}
+
+function buildRetention(core: AnalyticsCore) {
+  const byCustomer = customerAgg(core);
 
   const segments = [
     { segmento: "Una visita", test: (n: number) => n === 1 },
@@ -657,6 +773,322 @@ function buildDataQuality(core: AnalyticsCore) {
   };
 }
 
+export type DashboardExtras = {
+  periodo?: string;
+  prevCategories?: { nombre: string; categoria: string | null; ingresos: number }[];
+  monthly?: { mes: string; label: string; ingresos: number; ordenes: number }[];
+};
+
+/**
+ * Métricas "de portada": récords, proyección, canales, descuentos y clientes.
+ * Todo se deriva de la misma carga del período; el período anterior solo
+ * aporta la mezcla de categorías para calcular crecimiento.
+ */
+function buildHighlights(core: AnalyticsCore, prev: SalesTotals, extras: DashboardExtras) {
+  const kpis = buildKpis(core);
+  const series = buildTimeSeries(core);
+  const activeDays = series.filter((d) => d.ingresos > 0);
+  const hourly = buildHourly(core).filter((h) => h.ingresos > 0);
+  const products = buildProducts(core);
+  const topCustomers = buildTopCustomers(core);
+  const retention = buildRetention(core);
+
+  const bestDay = activeDays.length
+    ? activeDays.reduce((a, b) => (b.ingresos > a.ingresos ? b : a), activeDays[0])
+    : null;
+  const worstDay =
+    activeDays.length > 1
+      ? activeDays.reduce((a, b) => (b.ingresos < a.ingresos ? b : a), activeDays[0])
+      : null;
+  const bestHour = hourly.length
+    ? hourly.reduce((a, b) => (b.ingresos > a.ingresos ? b : a), hourly[0])
+    : null;
+
+  // La cuenta más alta es la suma de todos los comprobantes de una orden
+  // (con split bill, mirar un comprobante suelto daría un monto falso).
+  let maxOrderId: string | null = null;
+  let maxMonto = 0;
+  for (const [id, total] of core.orderTotals) {
+    if (total > maxMonto) {
+      maxMonto = total;
+      maxOrderId = id;
+    }
+  }
+  const maxOrder = maxOrderId ? core.ordersById.get(maxOrderId) : null;
+
+  // Racha más larga de días consecutivos con al menos una venta.
+  const days = [...new Set(core.comps.map((c) => getCRDateKey(c.created_at)))].sort();
+  let racha = { dias: 0, desde: "", hasta: "" };
+  let run = 1;
+  for (let i = 1; i < days.length; i++) {
+    const diff =
+      (new Date(`${days[i]}T12:00:00Z`).getTime() -
+        new Date(`${days[i - 1]}T12:00:00Z`).getTime()) /
+      MS_DAY;
+    if (diff === 1) {
+      run += 1;
+    } else {
+      if (run > racha.dias) racha = { dias: run, desde: days[i - run], hasta: days[i - 1] };
+      run = 1;
+    }
+  }
+  if (days.length && run > racha.dias) {
+    racha = { dias: run, desde: days[days.length - run], hasta: days[days.length - 1] };
+  }
+
+  // Mesa vs. para llevar. Si la orden no aparece (rango incompleto), se
+  // separa como "sin clasificar" en vez de mentir con un canal.
+  const channel = {
+    mesa: { ordenes: new Set<string>(), ingresos: 0 },
+    llevar: { ordenes: new Set<string>(), ingresos: 0 },
+    sin_clasificar: { ordenes: new Set<string>(), ingresos: 0 },
+  };
+  for (const comp of core.comps) {
+    const key = orderKey(comp);
+    const order = core.ordersById.get(key);
+    const kind: keyof typeof channel = !order
+      ? "sin_clasificar"
+      : order.tipo === "llevar" || Number(order.mesa_numero) === 99
+        ? "llevar"
+        : "mesa";
+    channel[kind].ordenes.add(key);
+    channel[kind].ingresos += Number(comp.total || 0);
+  }
+  const totalCanal = sum(Object.values(channel).map((c) => c.ingresos));
+  const canales = Object.fromEntries(
+    Object.entries(channel).map(([k, v]) => [
+      k,
+      {
+        ordenes: v.ordenes.size,
+        ingresos: round2(v.ingresos),
+        ticket_promedio: v.ordenes.size ? round2(v.ingresos / v.ordenes.size) : 0,
+        pct: totalCanal > 0 ? round1((v.ingresos / totalCanal) * 100) : 0,
+      },
+    ])
+  ) as Record<
+    keyof typeof channel,
+    { ordenes: number; ingresos: number; ticket_promedio: number; pct: number }
+  >;
+
+  let descuento = 0;
+  let bruto = 0;
+  let conDescuento = 0;
+  for (const c of core.comps) {
+    const d = Number(c.descuento || 0);
+    descuento += d;
+    bruto += Number(c.total || 0) + d;
+    if (d > 0) conDescuento += 1;
+  }
+
+  // Proyección de cierre: solo tiene sentido en el mes calendario.
+  let proyeccion: {
+    dias_transcurridos: number;
+    dias_mes: number;
+    promedio_diario: number;
+    proyeccion: number;
+    restante: number;
+  } | null = null;
+  if (extras.periodo === "mes") {
+    const endKey = getCRDateKey(core.end);
+    const [y, m, d] = endKey.split("-").map(Number);
+    const diasMes = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const transcurridos = Math.max(1, Math.min(diasMes, d));
+    const promedio = kpis.ingresos_totales / transcurridos;
+    proyeccion = {
+      dias_transcurridos: transcurridos,
+      dias_mes: diasMes,
+      promedio_diario: round2(promedio),
+      proyeccion: round2(promedio * diasMes),
+      restante: round2(promedio * Math.max(0, diasMes - transcurridos)),
+    };
+  }
+
+  // Meta sugerida: el 60% de los días vendió menos que esto. Es un "buen
+  // día típico", no un récord; se compara contra el promedio de días abiertos.
+  const metaDiaria = percentile(activeDays.map((d) => d.ingresos), 0.6);
+  const promedioDiario = kpis.ingresos_totales / Math.max(1, kpis.dias_con_ventas);
+  const meta = {
+    diaria: round2(metaDiaria),
+    promedio: round2(promedioDiario),
+    avance_pct: metaDiaria > 0 ? round1((promedioDiario / metaDiaria) * 100) : 0,
+  };
+
+  const prevCat = new Map<string, number>();
+  for (const p of extras.prevCategories || []) {
+    const cat = p.categoria || core.productCategory.get(p.nombre) || "Otros";
+    prevCat.set(cat, (prevCat.get(cat) || 0) + p.ingresos);
+  }
+  const categorias = products.categorias.slice(0, 8).map((c) => {
+    const antes = prevCat.get(c.nombre) || 0;
+    return {
+      nombre: c.nombre,
+      ingresos: c.ingresos,
+      pct_participacion: c.pct_participacion,
+      crecimiento_pct: antes > 0 ? round1(((c.ingresos - antes) / antes) * 100) : null,
+    };
+  });
+
+  const ticketPorDia = buildWeekdays(core).map((d) => ({
+    ...d,
+    ticket: d.ordenes ? round2(d.ingresos / d.ordenes) : 0,
+  }));
+
+  const vendidos = new Set(products.productos.map((p) => p.producto));
+  const sinVenta = core.productos.filter(
+    (p) => p.disponible && p.nombre && !vendidos.has(p.nombre)
+  );
+
+  const horasActivas = new Set(
+    core.comps.map((c) => `${getCRDateKey(c.created_at)}-${getCRHour(c.created_at)}`)
+  );
+  const ingresoHoraActiva = {
+    promedio: horasActivas.size ? round2(kpis.ingresos_totales / horasActivas.size) : 0,
+    horas: horasActivas.size,
+  };
+
+  const porMesa = new Map<number, { ingresos: number; ordenes: number }>();
+  for (const order of core.closedOrders) {
+    const mesa = Number(order.mesa_numero);
+    if (!Number.isInteger(mesa) || mesa <= 0) continue;
+    const current = porMesa.get(mesa) || { ingresos: 0, ordenes: 0 };
+    current.ingresos += core.orderTotals.get(order.id) || 0;
+    current.ordenes += 1;
+    porMesa.set(mesa, current);
+  }
+  const totalMesas = sum([...porMesa.values()].map((m) => m.ingresos));
+  const ventasPorMesa = [...porMesa.entries()]
+    .map(([mesa, v]) => ({
+      mesa,
+      ingresos: round2(v.ingresos),
+      ordenes: v.ordenes,
+      pct: totalMesas > 0 ? round1((v.ingresos / totalMesas) * 100) : 0,
+    }))
+    .sort((a, b) => a.mesa - b.mesa);
+
+  const identificados = sum(retention.map((r) => r.clientes));
+  const recurrentes = sum(
+    retention.filter((r) => r.segmento !== "Una visita").map((r) => r.clientes)
+  );
+
+  // Resumen narrado: frases cortas, sin jerga, listas para leer en voz alta.
+  const cambio =
+    prev.ventas > 0
+      ? round1(((kpis.ingresos_totales - prev.ventas) / prev.ventas) * 100)
+      : null;
+  const cuando =
+    (
+      {
+        hoy: "hoy",
+        semana: "esta semana",
+        mes: "este mes",
+        anio: "este año",
+        "año": "este año",
+        todo: "en total",
+      } as Record<string, string>
+    )[extras.periodo || ""] || "en el período";
+  const resumen: string[] = [];
+  resumen.push(
+    `Vendiste ${formatColones(kpis.ingresos_totales)} ${cuando} con ${kpis.total_ordenes} comandas.` +
+      (cambio === null
+        ? ` Tu cuenta promedio fue ${formatColones(kpis.ticket_promedio)}.`
+        : ` Eso es ${String(Math.abs(cambio)).replace(".", ",")}% ${cambio >= 0 ? "más" : "menos"} que el mismo período anterior.`)
+  );
+  const estrella = products.productos[0];
+  if (estrella) {
+    resumen.push(
+      `Tu producto estrella fue ${estrella.producto}, con ${estrella.unidades_vendidas} unidades y ${formatColones(estrella.ingresos)}.`
+    );
+  }
+  if (bestDay) {
+    resumen.push(
+      `El mejor día fue ${formatFecha(bestDay.periodo)}, con ${formatColones(bestDay.ingresos)} en ${bestDay.ordenes} comandas.`
+    );
+  }
+  const catTop = products.categorias[0];
+  if (catTop) {
+    resumen.push(
+      `La categoría ${catTop.nombre} generó el ${catTop.pct_participacion}% de tus ventas.`
+    );
+  }
+  if (identificados > 0) {
+    resumen.push(
+      `${recurrentes} de ${identificados} clientes identificados volvieron más de una vez${
+        topCustomers[0] ? `; el más fiel fue ${topCustomers[0].nombre}` : ""
+      }.`
+    );
+  }
+  if (proyeccion) {
+    resumen.push(
+      `Si mantenés el ritmo, cerrarías el mes en ${formatColones(proyeccion.proyeccion)}.`
+    );
+  } else if (descuento > 0) {
+    resumen.push(
+      `Otorgaste ${formatColones(descuento)} en descuentos, un ${
+        bruto > 0 ? round1((descuento / bruto) * 100) : 0
+      }% de lo vendido.`
+    );
+  }
+
+  return {
+    resumen,
+    records: {
+      mejor_dia: bestDay,
+      peor_dia: worstDay,
+      cuenta_maxima:
+        maxOrder && maxMonto > 0
+          ? {
+              monto: round2(maxMonto),
+              cliente: maxOrder.cliente_nombre || null,
+              mesa: maxOrder.mesa_numero ?? null,
+              fecha: getCRDateKey(maxOrder.closed_at || maxOrder.created_at),
+            }
+          : null,
+      producto_estrella: estrella
+        ? {
+            nombre: estrella.producto,
+            unidades: estrella.unidades_vendidas,
+            ingresos: estrella.ingresos,
+          }
+        : null,
+      categoria_estrella: catTop
+        ? { nombre: catTop.nombre, ingresos: catTop.ingresos, pct: catTop.pct_participacion }
+        : null,
+      cliente_fiel: topCustomers[0] || null,
+      racha: racha.dias > 0 ? racha : null,
+      hora_top: bestHour,
+    },
+    proyeccion,
+    meta,
+    canales,
+    descuentos: {
+      monto: round2(descuento),
+      bruto: round2(bruto),
+      pct: bruto > 0 ? round1((descuento / bruto) * 100) : 0,
+      comprobantes: core.comps.length,
+      con_descuento: conDescuento,
+    },
+    top_clientes: topCustomers,
+    categorias_crecimiento: categorias,
+    ticket_por_dia: ticketPorDia,
+    productos_sin_venta: {
+      total: sinVenta.length,
+      productos: sinVenta.slice(0, 8).map((p) => ({
+        nombre: p.nombre,
+        categoria: p.categoria,
+        precio: p.precio,
+      })),
+    },
+    ingreso_hora_activa: ingresoHoraActiva,
+    ventas_por_mesa: ventasPorMesa,
+    historial_mensual: extras.monthly || [],
+    clientes: {
+      identificados,
+      recurrentes,
+      pct_recurrentes: identificados > 0 ? round1((recurrentes / identificados) * 100) : 0,
+    },
+  };
+}
+
 function buildTrend(core: AnalyticsCore) {
   const series = buildTimeSeries(core);
   const values = series.map((s) => s.ingresos);
@@ -724,7 +1156,11 @@ export function buildProductsResponse(core: AnalyticsCore) {
   };
 }
 
-export function buildDashboard(core: AnalyticsCore, prev: SalesTotals) {
+export function buildDashboard(
+  core: AnalyticsCore,
+  prev: SalesTotals,
+  extras: DashboardExtras = {}
+) {
   const kpis = buildKpis(core);
   const pct = (actual: number, anterior: number) =>
     anterior > 0 ? round1(((actual - anterior) / anterior) * 100) : 0;
@@ -743,6 +1179,7 @@ export function buildDashboard(core: AnalyticsCore, prev: SalesTotals) {
       hasta: core.end,
     },
     dataQuality: buildDataQuality(core),
+    highlights: buildHighlights(core, prev, extras),
   };
 }
 
