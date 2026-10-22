@@ -14,7 +14,7 @@ export type Producto = {
   precio: number;
   disponible: boolean;
   orden: number;
-  menu_origen: 'menu1' | 'menu2';
+  menu_origen: 'menu1' | 'menu2' | 'menu3';
 };
 
 export type Mesa = {

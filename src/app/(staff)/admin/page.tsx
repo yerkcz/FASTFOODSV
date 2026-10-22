@@ -201,7 +201,7 @@ export default function AdminPortal() {
     const [productName, setProductName] = useState("");
     const [productPrice, setProductPrice] = useState("");
     const [productCategory, setProductCategory] = useState("");
-    const [productMenu, setProductMenu] = useState("menu1");
+    const [productMenu, setProductMenu] = useState("menu3");
     const [savingProduct, setSavingProduct] = useState(false);
 
     // Phase D: Admin Tabs & Closed Orders
@@ -1362,6 +1362,7 @@ export default function AdminPortal() {
                                     style={{ padding: '12px', borderRadius: '8px', border: '1px solid var(--surface-border)', fontSize: '0.9rem', outline: 'none', background: 'var(--surface)' }}>
                                     <option value="menu1">Menú 1 - Comida Rápida</option>
                                     <option value="menu2">Menú 2 - Cafetero</option>
+                                    <option value="menu3">Menú 3 - SANVÍ</option>
                                 </select>
                             </div>
                             <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>

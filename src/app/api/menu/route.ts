@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     const supabase = getServerSupabase();
     const { data, error } = await supabase
       .from('productos')
-      .select('id, nombre, precio, categoria_id, menu_origen, disponible')
+      .select('id, nombre, precio, categoria_id, menu_origen, disponible, orden')
       .eq('disponible', true)
       .order('categoria_id')
       .order('orden');
@@ -39,12 +39,16 @@ export async function GET(request: NextRequest) {
       category: catMap.get(p.categoria_id as string) || 'Otros',
       price: Number(p.precio) || 0,
       menu: p.menu_origen,
+      // Orden del menú físico del cliente (columna `orden`).
+      orden: Number(p.orden) || 0,
     })).filter((p) => p.name && p.name.trim() !== '');
 
     products.sort((a, b) => {
       const orderA = categoryOrder.get(a.category) ?? Number.MAX_SAFE_INTEGER;
       const orderB = categoryOrder.get(b.category) ?? Number.MAX_SAFE_INTEGER;
       if (orderA !== orderB) return orderA - orderB;
+      // Mismo criterio dentro de la categoría: primero el orden del menú.
+      if (a.orden !== b.orden) return a.orden - b.orden;
       return a.name.localeCompare(b.name, 'es');
     });
 

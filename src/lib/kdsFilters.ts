@@ -18,8 +18,24 @@ function norm(s: string | null | undefined): string {
   return String(s ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
 }
 
-/** Categorías que van al KDS de Bebidas Frías. */
+/**
+ * Categorías que van al KDS de Bebidas Frías.
+ *
+ * Menú SANVÍ (migros/0003_menu_sanvi.sql) + menú anterior, para que una
+ * restauración del menú viejo siga clasificando bien.
+ */
 const COLD_CATEGORIES: ReadonlySet<string> = new Set([
+  // ── Menú SANVÍ ──
+  'frappés y café frío',
+  'batidos naturales',
+  'bebidas de la casa',
+  'vinos y sangría',
+  'cócteles y tragos — tequila',
+  'cócteles y tragos — whisky',
+  'cócteles y tragos — ron',
+  'gin tonic',
+  'cervezas',
+  // ── Menú anterior (por si se restaura) ──
   'batidos en agua',
   'batidos en leche',
   'milkshakes',
@@ -32,6 +48,10 @@ const COLD_CATEGORIES: ReadonlySet<string> = new Set([
 
 /** Categorías que van al KDS de Bebidas Calientes. */
 const HOT_CATEGORIES: ReadonlySet<string> = new Set([
+  // ── Menú SANVÍ ──
+  'bebidas de café',
+  'tés e infusiones',
+  // ── Menú anterior (por si se restaura) ──
   'bebidas calientes',
   'bebidas calientes (cafetero)',
 ]);
@@ -48,9 +68,8 @@ export function isHotDrink(categoria: string | null | undefined): boolean {
 
 /**
  * ¿Esta categoría va al KDS de Cocina (todo lo que NO sea bebida)?
- * Incluye: Arroces, Comida Rápida, Ceviches, Helados, Postres y Helados,
- * Postres, Especialidades Cafeteras, y cualquier categoría nueva
- * que no esté en las whitelists de bebidas.
+ * Incluye: Comidas (menú SANVÍ) y cualquier categoría nueva que no esté
+ * en las whitelists de bebidas.
  */
 export function isKitchenFood(categoria: string | null | undefined): boolean {
   const c = norm(categoria);
